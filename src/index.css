@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background-color: #F0F4F8;
+    color: #1A1A2E;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: #F0F4F8; }
+  ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+}
+
+@layer components {
+  .card { @apply bg-white rounded-xl shadow-card; }
+  .page-header { @apply text-xl font-semibold text-secondary mb-1; }
+  .page-sub { @apply text-sm text-gray-500 mb-6; }
+  .section-title { @apply text-sm font-semibold text-secondary mb-3; }
+  .input {
+    @apply w-full px-3 py-2 border border-gray-200 rounded-lg text-sm
+    focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all bg-white;
+  }
+  .label { @apply block text-xs font-medium text-gray-500 mb-1 uppercase tracking-wide; }
+  .btn {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+    transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary { @apply btn bg-primary text-white hover:bg-primary-600 active:bg-primary-700; }
+  .btn-outline { @apply btn border border-gray-200 text-gray-600 hover:bg-gray-50 bg-white; }
+  .btn-danger  { @apply btn bg-red-50 text-red-600 hover:bg-red-100; }
+  .btn-success { @apply btn bg-green-50 text-green-700 hover:bg-green-100; }
+  .btn-ghost   { @apply btn text-gray-500 hover:bg-gray-100; }
+}
