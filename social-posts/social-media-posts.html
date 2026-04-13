@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CabCall Experts — Social Media Posts</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #060613;
+      font-family: 'Inter', sans-serif;
+      padding: 60px 40px 80px;
+      min-height: 100vh;
+    }
+
+    /* ── Page header ── */
+    .page-title {
+      text-align: center;
+      margin-bottom: 70px;
+    }
+    .page-title h1 {
+      font-size: 30px;
+      font-weight: 800;
+      color: #ffffff;
+      margin-bottom: 8px;
+    }
+    .page-title h1 span { color: #2E86C1; }
+    .page-title p {
+      color: #5DADE2;
+      font-size: 13px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    /* ── Section wrapper ── */
+    .post-section { margin-bottom: 90px; }
+
+    .platform-label {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 22px;
+      justify-content: center;
+    }
+    .platform-badge {
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      padding: 6px 18px;
+      border-radius: 20px;
+    }
+    .badge-ig  { background: linear-gradient(135deg,#833ab4,#fd1d1d,#fcb045); }
+    .badge-fb  { background: #1877F2; }
+    .badge-li  { background: #0077B5; }
+    .dimensions { color: #5DADE2; font-size: 12px; font-weight: 500; }
+
+    .post-frame { display: flex; justify-content: center; }
+
+    /* Scale wrapper clips the scaled post so page size matches visual size */
+    .scale-wrapper {
+      overflow: hidden;
+      border-radius: 6px;
+      box-shadow:
+        0 0 0 1px rgba(46,134,193,0.25),
+        0 24px 70px rgba(0,0,0,0.7);
+      position: relative;
+    }
+    .scale-ig { width: 540px;  height: 540px; }
+    .scale-fb { width: 720px;  height: 378px; }
+    .scale-li { width: 720px;  height: 376px; }
+
+    /* ═══════════════════════════════════════════════════════
+       INSTAGRAM  1080 × 1080
+    ═══════════════════════════════════════════════════════ */
+    .ig-post {
+      width: 1080px;
+      height: 1080px;
+      transform: scale(0.5);
+      transform-origin: top left;
+      background: linear-gradient(150deg, #1A1A2E 0%, #0D2140 55%, #132038 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Decorative circles */
+    .ig-ring-1 {
+      position: absolute;
+      width: 700px; height: 700px;
+      border-radius: 50%;
+      border: 90px solid rgba(46,134,193,0.07);
+      top: -260px; right: -220px;
+    }
+    .ig-ring-2 {
+      position: absolute;
+      width: 480px; height: 480px;
+      border-radius: 50%;
+      border: 2px solid rgba(46,134,193,0.18);
+      top: -140px; right: -120px;
+    }
+    .ig-ring-3 {
+      position: absolute;
+      width: 420px; height: 420px;
+      border-radius: 50%;
+      border: 60px solid rgba(46,134,193,0.06);
+      bottom: -160px; left: -160px;
+    }
+    .ig-dot-grid {
+      position: absolute;
+      bottom: 100px; right: 60px;
+      width: 120px; height: 120px;
+      opacity: 0.15;
+      background-image: radial-gradient(circle, #2E86C1 1.5px, transparent 1.5px);
+      background-size: 18px 18px;
+    }
+
+    /* Top accent bar */
+    .ig-top-bar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 7px;
+      background: linear-gradient(90deg, #154360, #2E86C1 40%, #5DADE2 70%, #2874A6);
+    }
+
+    /* Header */
+    .ig-header {
+      position: absolute;
+      top: 36px; left: 60px; right: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .ig-badge-pill {
+      background: rgba(46,134,193,0.18);
+      border: 1.5px solid rgba(46,134,193,0.6);
+      color: #5DADE2;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 12px 28px;
+      border-radius: 40px;
+    }
+    .ig-logo { width: 110px; height: auto; }
+
+    /* Centered content block */
+    .ig-center {
+      position: absolute;
+      top: 145px; bottom: 155px;
+      left: 80px; right: 80px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+
+    /* Phone icon circle */
+    .ig-phone-wrap {
+      width: 130px; height: 130px;
+      border-radius: 50%;
+      background: rgba(46,134,193,0.12);
+      border: 2px solid rgba(46,134,193,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      margin-bottom: 44px;
+      flex-shrink: 0;
+    }
+    .ig-missed-badge {
+      position: absolute;
+      top: 6px; right: 6px;
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      background: #EF4444;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 900;
+      color: white;
+      line-height: 1;
+    }
+
+    .ig-headline {
+      font-size: 54px;
+      font-weight: 900;
+      color: #ffffff;
+      line-height: 1.12;
+      margin-bottom: 28px;
+    }
+    .ig-headline .blue { color: #2E86C1; }
+
+    .ig-divider {
+      width: 70px; height: 5px;
+      background: linear-gradient(90deg, #2E86C1, #5DADE2);
+      border-radius: 3px;
+      margin: 0 auto 28px;
+      flex-shrink: 0;
+    }
+
+    .ig-body {
+      font-size: 26px;
+      color: #AED6F1;
+      line-height: 1.65;
+      margin-bottom: 38px;
+    }
+    .ig-body strong { color: #ffffff; }
+
+    .ig-cta-pill {
+      background: linear-gradient(90deg, #2E86C1, #1F618D);
+      color: white;
+      font-size: 24px;
+      font-weight: 700;
+      padding: 18px 52px;
+      border-radius: 50px;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+
+    /* Hashtags */
+    .ig-hashtags {
+      position: absolute;
+      bottom: 88px; left: 60px; right: 60px;
+      text-align: center;
+      font-size: 18px;
+      font-weight: 500;
+      color: rgba(93,173,226,0.65);
+      letter-spacing: 0.3px;
+    }
+
+    /* Footer */
+    .ig-footer {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 72px;
+      background: linear-gradient(90deg, #154360 0%, #2E86C1 50%, #154360 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+    }
+    .ig-footer-url {
+      font-size: 26px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: 1px;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       FACEBOOK  1200 × 630
+    ═══════════════════════════════════════════════════════ */
+    .fb-post {
+      width: 1200px;
+      height: 630px;
+      transform: scale(0.6);
+      transform-origin: top left;
+      background: linear-gradient(135deg, #1A1A2E 0%, #0E1D36 55%, #0D2140 100%);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* Left accent stripe */
+    .fb-stripe {
+      position: absolute;
+      top: 0; left: 0; bottom: 0;
+      width: 7px;
+      background: linear-gradient(180deg, #2E86C1, #154360);
+    }
+
+    /* Decorative ring bottom-right */
+    .fb-ring {
+      position: absolute;
+      width: 500px; height: 500px;
+      border-radius: 50%;
+      border: 2px solid rgba(46,134,193,0.1);
+      bottom: -200px; right: -150px;
+    }
+    .fb-ring-2 {
+      position: absolute;
+      width: 340px; height: 340px;
+      border-radius: 50%;
+      border: 80px solid rgba(46,134,193,0.05);
+      bottom: -140px; right: -100px;
+    }
+
+    /* Left panel */
+    .fb-left {
+      width: 620px;
+      padding: 44px 55px 50px 70px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      z-index: 1;
+    }
+
+    .fb-top-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+    }
+    .fb-badge {
+      background: rgba(46,134,193,0.18);
+      border: 1.5px solid rgba(46,134,193,0.55);
+      color: #5DADE2;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      padding: 8px 20px;
+      border-radius: 30px;
+    }
+    .fb-logo { width: 72px; height: auto; }
+
+    .fb-headline {
+      font-size: 34px;
+      font-weight: 900;
+      color: #ffffff;
+      line-height: 1.2;
+      margin-bottom: 22px;
+    }
+    .fb-headline .blue { color: #2E86C1; }
+
+    .fb-body {
+      font-size: 17px;
+      color: #AED6F1;
+      line-height: 1.7;
+      margin-bottom: 24px;
+      flex: 1;
+    }
+    .fb-body strong { color: #ffffff; }
+
+    .fb-hashtags {
+      font-size: 13px;
+      color: rgba(93,173,226,0.6);
+      font-weight: 500;
+      line-height: 1.7;
+    }
+
+    /* Right panel */
+    .fb-right {
+      width: 580px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .fb-right-glow {
+      position: absolute;
+      width: 460px; height: 460px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(46,134,193,0.13) 0%, transparent 65%);
+      top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+    }
+
+    .fb-stat-card {
+      background: rgba(46,134,193,0.09);
+      border: 1px solid rgba(46,134,193,0.28);
+      border-radius: 24px;
+      padding: 44px 52px;
+      text-align: center;
+      position: relative;
+      z-index: 1;
+    }
+    .fb-stat-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+    .fb-stat-num {
+      font-size: 88px;
+      font-weight: 900;
+      color: #2E86C1;
+      line-height: 1;
+    }
+    .fb-stat-plus {
+      font-size: 52px;
+      font-weight: 900;
+      color: #EF4444;
+      line-height: 1.1;
+      margin-top: 6px;
+    }
+    .fb-stat-label {
+      font-size: 15px;
+      font-weight: 700;
+      color: #AED6F1;
+      text-transform: uppercase;
+      letter-spacing: 2.5px;
+    }
+    .fb-stat-sub {
+      font-size: 12px;
+      color: rgba(174,214,241,0.5);
+      margin-top: 5px;
+    }
+    .fb-stat-divider {
+      height: 1px;
+      background: rgba(46,134,193,0.3);
+      margin: 22px 0;
+    }
+    .fb-stat-impact {
+      font-size: 18px;
+      font-weight: 700;
+      color: #EF4444;
+    }
+    .fb-stat-impact-sub {
+      font-size: 13px;
+      color: rgba(174,214,241,0.6);
+      margin-top: 5px;
+    }
+
+    /* Footer bar */
+    .fb-footer {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 52px;
+      background: linear-gradient(90deg, #154360, #2E86C1 50%, #154360);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+    .fb-footer-url {
+      font-size: 17px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: 1.2px;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       LINKEDIN  1200 × 627
+    ═══════════════════════════════════════════════════════ */
+    .li-post {
+      width: 1200px;
+      height: 627px;
+      transform: scale(0.6);
+      transform-origin: top left;
+      background: linear-gradient(145deg, #1A1A2E 0%, #101B2D 55%, #0D2140 100%);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Decorative elements */
+    .li-ring-1 {
+      position: absolute;
+      width: 360px; height: 360px;
+      border-radius: 50%;
+      border: 1px solid rgba(46,134,193,0.12);
+      bottom: -120px; right: -80px;
+    }
+    .li-ring-2 {
+      position: absolute;
+      width: 220px; height: 220px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(46,134,193,0.06) 0%, transparent 70%);
+      bottom: -60px; right: -30px;
+    }
+    .li-dot-grid {
+      position: absolute;
+      top: 100px; right: 30px;
+      width: 90px; height: 90px;
+      opacity: 0.12;
+      background-image: radial-gradient(circle, #2E86C1 1.5px, transparent 1.5px);
+      background-size: 16px 16px;
+    }
+
+    /* Header bar */
+    .li-header {
+      height: 80px;
+      background: linear-gradient(90deg, #154360 0%, #2E86C1 60%, #1F618D 100%);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 60px;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 2;
+    }
+    .li-header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .li-logo { width: 50px; height: auto; }
+    .li-brand-name {
+      font-size: 22px;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: 0.3px;
+    }
+    .li-brand-sub {
+      font-size: 11px;
+      color: rgba(255,255,255,0.65);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    .li-industry-tag {
+      background: rgba(255,255,255,0.15);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 7px 18px;
+      border-radius: 20px;
+      border: 1px solid rgba(255,255,255,0.25);
+    }
+
+    /* Main content */
+    .li-content {
+      flex: 1;
+      display: flex;
+      padding: 36px 60px 0;
+      gap: 48px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Text column */
+    .li-text-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .li-eyebrow {
+      font-size: 13px;
+      font-weight: 700;
+      color: #2E86C1;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      margin-bottom: 16px;
+    }
+    .li-headline {
+      font-size: 30px;
+      font-weight: 900;
+      color: #ffffff;
+      line-height: 1.22;
+      margin-bottom: 18px;
+    }
+    .li-headline .blue { color: #5DADE2; }
+    .li-body {
+      font-size: 15.5px;
+      color: #AED6F1;
+      line-height: 1.75;
+      margin-bottom: 22px;
+    }
+    .li-body strong { color: #ffffff; }
+    .li-hashtags {
+      font-size: 12.5px;
+      color: rgba(93,173,226,0.55);
+      font-weight: 500;
+      line-height: 1.8;
+    }
+
+    /* Impact cards column */
+    .li-cards-col {
+      width: 385px;
+      display: flex;
+      flex-direction: column;
+      gap: 13px;
+      justify-content: center;
+      padding-bottom: 8px;
+    }
+    .li-card {
+      background: rgba(46,134,193,0.08);
+      border-left: 4px solid #2E86C1;
+      border-radius: 0 12px 12px 0;
+      padding: 16px 20px;
+    }
+    .li-card.red  { border-left-color: #EF4444; }
+    .li-card.green { border-left-color: #10B981; }
+
+    .li-card-title {
+      font-size: 14.5px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 5px;
+    }
+    .li-card.red  .li-card-title { color: #FCA5A5; }
+    .li-card.green .li-card-title { color: #6EE7B7; }
+
+    .li-card-desc {
+      font-size: 13px;
+      color: #AED6F1;
+      line-height: 1.55;
+    }
+
+    /* Footer */
+    .li-footer {
+      height: 52px;
+      flex-shrink: 0;
+      background: rgba(0,0,0,0.3);
+      border-top: 1px solid rgba(46,134,193,0.28);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 60px;
+      position: relative;
+      z-index: 2;
+    }
+    .li-footer-url {
+      font-size: 16px;
+      font-weight: 700;
+      color: #5DADE2;
+      letter-spacing: 1px;
+    }
+    .li-footer-tagline {
+      font-size: 12px;
+      color: rgba(174,214,241,0.45);
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page-title">
+    <h1><span>CabCall Experts</span> — Social Media Posts</h1>
+    <p>Campaign: Did You Know? &nbsp;·&nbsp; Missed Calls &nbsp;·&nbsp; Taxi Revenue</p>
+  </div>
+
+  <!-- ════════════════════ INSTAGRAM ════════════════════ -->
+  <div class="post-section">
+    <div class="platform-label">
+      <span class="platform-badge badge-ig">Instagram</span>
+      <span class="dimensions">1080 × 1080 px</span>
+    </div>
+    <div class="post-frame">
+      <div class="scale-wrapper scale-ig">
+        <div class="ig-post">
+
+          <!-- Decorative rings -->
+          <div class="ig-ring-1"></div>
+          <div class="ig-ring-2"></div>
+          <div class="ig-ring-3"></div>
+          <div class="ig-dot-grid"></div>
+
+          <!-- Top accent bar -->
+          <div class="ig-top-bar"></div>
+
+          <!-- Header -->
+          <div class="ig-header">
+            <div class="ig-badge-pill">Did You Know?</div>
+            <img src="../CCE-Logo.png" alt="CabCall Experts" class="ig-logo">
+          </div>
+
+          <!-- Centred main content -->
+          <div class="ig-center">
+
+            <!-- Phone missed-call icon -->
+            <div class="ig-phone-wrap">
+              <svg width="68" height="68" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36
+                  1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1
+                  1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2
+                  2.45.57 3.57.11.35.03.74-.25 1.02L6.62 10.79z" fill="#2E86C1"/>
+              </svg>
+              <div class="ig-missed-badge">✕</div>
+            </div>
+
+            <div class="ig-headline">
+              A missed call at peak time<br>can mean <span class="blue">a lost fare</span> —<br>and a customer who won't call back.
+            </div>
+
+            <div class="ig-divider"></div>
+
+            <div class="ig-body">
+              Taxi operators running without a dedicated call team<br>
+              lose hundreds of fares every single month.<br><br>
+              <strong>CabCall Experts exists to fix exactly that.</strong>
+            </div>
+
+            <div class="ig-cta-pill">cabcallexperts.com</div>
+          </div>
+
+          <!-- Hashtags -->
+          <div class="ig-hashtags">
+            #MissedCalls &nbsp;·&nbsp; #TaxiRevenue &nbsp;·&nbsp; #CabCallExperts &nbsp;·&nbsp; #TaxiOperators &nbsp;·&nbsp; #UKTaxi
+          </div>
+
+          <!-- Footer bar -->
+          <div class="ig-footer">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="10" stroke="white" stroke-width="1.5"/>
+              <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="white" stroke-width="1.5"/>
+            </svg>
+            <span class="ig-footer-url">cabcallexperts.com</span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ FACEBOOK ════════════════════ -->
+  <div class="post-section">
+    <div class="platform-label">
+      <span class="platform-badge badge-fb">Facebook</span>
+      <span class="dimensions">1200 × 630 px</span>
+    </div>
+    <div class="post-frame">
+      <div class="scale-wrapper scale-fb">
+        <div class="fb-post">
+
+          <!-- Decorative -->
+          <div class="fb-stripe"></div>
+          <div class="fb-ring"></div>
+          <div class="fb-ring-2"></div>
+
+          <!-- Left panel -->
+          <div class="fb-left">
+            <div>
+              <div class="fb-top-row">
+                <div class="fb-badge">Did You Know?</div>
+                <img src="../CCE-Logo.png" alt="CabCall Experts" class="fb-logo">
+              </div>
+
+              <div class="fb-headline">
+                A missed call at peak time can mean<br>
+                <span class="blue">a lost fare</span> — and a customer<br>
+                who won't call back.
+              </div>
+
+              <div class="fb-body">
+                For taxi operators running without a dedicated call team,
+                this happens <strong>hundreds of times a month.</strong>
+                <br><br>
+                CabCall Experts exists to fix exactly that.
+              </div>
+            </div>
+
+            <div class="fb-hashtags">
+              #MissedCalls &nbsp;·&nbsp; #TaxiRevenue &nbsp;·&nbsp; #CabCallExperts<br>
+              #TaxiOperators &nbsp;·&nbsp; #UKTaxi
+            </div>
+          </div>
+
+          <!-- Right panel -->
+          <div class="fb-right">
+            <div class="fb-right-glow"></div>
+            <div class="fb-stat-card">
+              <div class="fb-stat-top">
+                <span class="fb-stat-num">100</span>
+                <span class="fb-stat-plus">+</span>
+              </div>
+              <div class="fb-stat-label">Missed Calls</div>
+              <div class="fb-stat-sub">per operator · per month</div>
+              <div class="fb-stat-divider"></div>
+              <div class="fb-stat-impact">= Lost Revenue</div>
+              <div class="fb-stat-impact-sub">Every. Single. Month.</div>
+            </div>
+          </div>
+
+          <!-- Footer bar -->
+          <div class="fb-footer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="10" stroke="white" stroke-width="1.5"/>
+              <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="white" stroke-width="1.5"/>
+            </svg>
+            <span class="fb-footer-url">Visit us: cabcallexperts.com</span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ LINKEDIN ════════════════════ -->
+  <div class="post-section">
+    <div class="platform-label">
+      <span class="platform-badge badge-li">LinkedIn</span>
+      <span class="dimensions">1200 × 627 px</span>
+    </div>
+    <div class="post-frame">
+      <div class="scale-wrapper scale-li">
+        <div class="li-post">
+
+          <!-- Decorative -->
+          <div class="li-ring-1"></div>
+          <div class="li-ring-2"></div>
+          <div class="li-dot-grid"></div>
+
+          <!-- Header bar -->
+          <div class="li-header">
+            <div class="li-header-left">
+              <img src="../CCE-Logo.png" alt="CabCall Experts" class="li-logo">
+              <div>
+                <div class="li-brand-name">CabCall Experts</div>
+                <div class="li-brand-sub">Industry Insight</div>
+              </div>
+            </div>
+            <div class="li-industry-tag">Taxi Industry · UK</div>
+          </div>
+
+          <!-- Main content -->
+          <div class="li-content">
+
+            <!-- Text column -->
+            <div class="li-text-col">
+              <div class="li-eyebrow">Did you know?</div>
+
+              <div class="li-headline">
+                A missed call at peak time can mean<br>
+                <span class="blue">a lost fare</span> — and a customer<br>
+                who won't call back.
+              </div>
+
+              <div class="li-body">
+                For taxi operators running without a dedicated call team,
+                this happens hundreds of times a month.
+                <br>
+                <strong>CabCall Experts exists to fix exactly that.</strong>
+              </div>
+
+              <div class="li-hashtags">
+                #MissedCalls &nbsp;·&nbsp; #TaxiRevenue &nbsp;·&nbsp; #CabCallExperts &nbsp;·&nbsp; #TaxiOperators &nbsp;·&nbsp; #UKTaxi
+              </div>
+            </div>
+
+            <!-- Impact cards column -->
+            <div class="li-cards-col">
+              <div class="li-card red">
+                <div class="li-card-title">Peak Hours = Peak Risk</div>
+                <div class="li-card-desc">Every unanswered call during busy periods is a direct hit to your monthly revenue — and your reputation.</div>
+              </div>
+
+              <div class="li-card">
+                <div class="li-card-title">Hundreds of Fares Lost Monthly</div>
+                <div class="li-card-desc">Without a dedicated call team, operators consistently miss hundreds of bookings every single month.</div>
+              </div>
+
+              <div class="li-card green">
+                <div class="li-card-title">CabCall Experts — The Solution</div>
+                <div class="li-card-desc">Professional call handling built specifically for UK taxi operators. Never miss a fare again.</div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Footer -->
+          <div class="li-footer">
+            <div class="li-footer-url">
+              <svg style="vertical-align:middle;margin-right:8px" width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="10" stroke="#5DADE2" stroke-width="1.5"/>
+                <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="#5DADE2" stroke-width="1.5"/>
+              </svg>
+              cabcallexperts.com
+            </div>
+            <div class="li-footer-tagline">Professional call handling for UK taxi operators</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
