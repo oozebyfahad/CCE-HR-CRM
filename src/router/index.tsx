@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAppSelector } from '../store'
 import Layout      from '../components/layout/Layout'
 import Login       from '../pages/auth/Login'
+import ApplyForm   from '../pages/apply/ApplyForm'
 import HRDashboard from '../pages/dashboard/HRDashboard'
 import EmployeeList    from '../pages/employees/EmployeeList'
 import EmployeeProfile from '../pages/employees/EmployeeProfile'
@@ -24,6 +25,7 @@ export function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/apply" element={<ApplyForm />} />
       <Route
         path="/"
         element={
@@ -46,7 +48,7 @@ export function AppRouter() {
         <Route path="reports"      element={<Reports />} />
         <Route path="settings"     element={<Settings />} />
       </Route>
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   )
 }

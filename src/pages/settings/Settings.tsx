@@ -136,7 +136,7 @@ export default function Settings() {
                 { label:'Document Storage',       value:'AWS S3 (encrypted)' },
                 { label:'Encryption Standard',    value:'AES-256 at rest · TLS 1.3 in transit' },
                 { label:'Last Backup',            value:'Today 02:00 AM' },
-              ].map(([label, value]) => (
+              ].map(({ label, value }) => (
                 <div key={label} className="flex justify-between py-2 border-b border-gray-50 last:border-0">
                   <p className="text-sm text-gray-500">{label}</p>
                   <p className="text-sm font-medium text-secondary">{value}</p>
