@@ -1,5 +1,5 @@
 // ── Auth & User ───────────────────────────────────────────────────────
-export type UserRole = 'hr_admin' | 'hr_officer' | 'line_manager' | 'employee' | 'super_admin'
+export type UserRole = 'admin' | 'hr' | 'team_lead' | 'employee'
 
 export interface User {
   id: string

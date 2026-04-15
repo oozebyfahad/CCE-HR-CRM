@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app'
+import { initializeApp, getApps } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 
@@ -15,4 +15,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
 export const db   = getFirestore(app)
+
+// Secondary app used to create new users without signing out the current admin
+const secondaryApp  = getApps().find(a => a.name === 'secondary') ?? initializeApp(firebaseConfig, 'secondary')
+export const authSecondary = getAuth(secondaryApp)
+
 export default app

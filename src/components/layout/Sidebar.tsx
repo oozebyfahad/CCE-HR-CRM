@@ -9,19 +9,20 @@ import { useAppDispatch, useAppSelector } from '../../store'
 import { logout } from '../../store/slices/authSlice'
 import { toggleSidebar } from '../../store/slices/uiSlice'
 import { cn } from '../../utils/cn'
+import type { UserRole } from '../../types'
 
-const NAV = [
-  { path: '/dashboard',    label: 'Dashboard',        Icon: LayoutDashboard },
-  { path: '/employees',    label: 'Employees',         Icon: Users           },
-  { path: '/attendance',   label: 'Attendance',        Icon: Clock           },
-  { path: '/leave',        label: 'Leave Management',  Icon: CalendarDays    },
-  { path: '/performance',  label: 'Performance',       Icon: TrendingUp      },
-  { path: '/training',     label: 'Training & Dev',    Icon: GraduationCap   },
-  { path: '/payroll',      label: 'Payroll',           Icon: Banknote        },
-  { path: '/recruitment',  label: 'Recruitment',       Icon: UserPlus        },
-  { path: '/disciplinary', label: 'Disciplinary',      Icon: AlertTriangle   },
-  { path: '/reports',      label: 'Reports',           Icon: BarChart3       },
-  { path: '/settings',     label: 'Settings',          Icon: Settings        },
+const NAV: { path: string; label: string; Icon: React.ElementType; roles: UserRole[] }[] = [
+  { path: '/dashboard',    label: 'Dashboard',       Icon: LayoutDashboard, roles: ['admin','hr','team_lead','employee'] },
+  { path: '/employees',    label: 'Employees',        Icon: Users,           roles: ['admin','hr'] },
+  { path: '/attendance',   label: 'Attendance',       Icon: Clock,           roles: ['admin','hr','team_lead','employee'] },
+  { path: '/leave',        label: 'Leave Management', Icon: CalendarDays,    roles: ['admin','hr','team_lead','employee'] },
+  { path: '/performance',  label: 'Performance',      Icon: TrendingUp,      roles: ['admin','hr','team_lead','employee'] },
+  { path: '/training',     label: 'Training & Dev',   Icon: GraduationCap,   roles: ['admin','hr','team_lead'] },
+  { path: '/payroll',      label: 'Payroll',          Icon: Banknote,        roles: ['admin','hr'] },
+  { path: '/recruitment',  label: 'Recruitment',      Icon: UserPlus,        roles: ['admin','hr'] },
+  { path: '/disciplinary', label: 'Disciplinary',     Icon: AlertTriangle,   roles: ['admin','hr'] },
+  { path: '/reports',      label: 'Reports',          Icon: BarChart3,       roles: ['admin','hr'] },
+  { path: '/settings',     label: 'Settings',         Icon: Settings,        roles: ['admin'] },
 ]
 
 export default function Sidebar() {
@@ -54,7 +55,7 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 space-y-0.5 px-2">
-        {NAV.map(({ path, label, Icon }) => (
+        {NAV.filter(item => !user?.role || item.roles.includes(user.role as UserRole)).map(({ path, label, Icon }) => (
           <NavLink
             key={path}
             to={path}

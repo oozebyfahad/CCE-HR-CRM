@@ -24,6 +24,7 @@ interface Props {
   employee?: FirebaseEmployee | null
   onSave: (data: Omit<FirebaseEmployee, 'id'>) => Promise<void>
   onClose: () => void
+  tableLabel?: string // e.g. "HR Staff", "Team Lead" — shown in header when adding from Settings
 }
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
@@ -39,7 +40,7 @@ function Field({ label, required, children }: { label: string; required?: boolea
 
 const inp = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-white text-gray-800 placeholder-gray-400 transition'
 
-export default function AddEditEmployeeModal({ employee, onSave, onClose }: Props) {
+export default function AddEditEmployeeModal({ employee, onSave, onClose, tableLabel }: Props) {
   const [tab,     setTab]     = useState<Tab>('Basic Info')
   const [form,    setForm]    = useState<Omit<FirebaseEmployee, 'id'>>(EMPTY)
   const [saving,  setSaving]  = useState(false)
@@ -91,8 +92,10 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose }: Prop
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
           <div>
-            <h2 className="text-lg font-bold text-secondary">{employee ? 'Edit Employee' : 'Add New Employee'}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Fill in the employee details below</p>
+            <h2 className="text-lg font-bold text-secondary">
+              {employee?.id ? 'Edit' : 'Add'} {tableLabel ?? 'Employee'}
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">Fill in the details below</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition">
             <X size={16} className="text-gray-500" />
