@@ -14,6 +14,8 @@
   ::-webkit-scrollbar-track { background: #F0F4F8; }
   ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
 }
 
 @layer components {

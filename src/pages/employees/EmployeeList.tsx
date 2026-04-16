@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Search, Plus, Download, MoreHorizontal, Eye, Pencil, Trash2, Users, Filter, DatabaseZap, ArrowUpDown, Check } from 'lucide-react'
 import { format } from 'date-fns'
 import { Avatar } from '../../components/common/Avatar'
@@ -6,7 +7,6 @@ import { Badge, statusVariant } from '../../components/common/Badge'
 import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS, DEPARTMENT_COLORS } from '../../utils/constants'
 import { useFirebaseEmployees, type FirebaseEmployee } from '../../hooks/useFirebaseEmployees'
 import AddEditEmployeeModal from './components/AddEditEmployeeModal'
-import ViewEmployeeModal    from './components/ViewEmployeeModal'
 import DeleteConfirmModal   from './components/DeleteConfirmModal'
 import { cn } from '../../utils/cn'
 import { seedEmployees } from '../../utils/seedEmployees'
@@ -125,6 +125,7 @@ const STATUS_OPTS  = ['All', ...Object.keys(STATUS_LABELS)]
 
 // ── Main component ──────────────────────────────────────────────────────
 export default function EmployeeList() {
+  const navigate = useNavigate()
   const { employees, loading, error, addEmployee, updateEmployee, deleteEmployee } = useFirebaseEmployees()
 
   const [search,    setSearch]    = useState('')
@@ -135,7 +136,6 @@ export default function EmployeeList() {
 
   const [addOpen,   setAddOpen]   = useState(false)
   const [editEmp,   setEditEmp]   = useState<FirebaseEmployee | null>(null)
-  const [viewEmp,   setViewEmp]   = useState<FirebaseEmployee | null>(null)
   const [deleteEmp, setDeleteEmp] = useState<FirebaseEmployee | null>(null)
 
   const [toast,    setToast]    = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -294,7 +294,7 @@ export default function EmployeeList() {
         {/* Rows */}
         {!loading && filtered.map(emp => (
           <div key={emp.id}
-            onClick={() => setViewEmp(emp)}
+            onClick={() => navigate(`/employees/${emp.id}`)}
             className="w-full flex items-center px-6 py-3.5 border-b border-gray-50 last:border-0 hover:bg-primary-50/30 transition-colors cursor-pointer text-sm">
 
             {/* Avatar + name + email */}
@@ -353,8 +353,8 @@ export default function EmployeeList() {
             {/* Actions */}
             <div className="w-10 shrink-0 flex justify-end">
               <ActionsMenu
-                onView={() => setViewEmp(emp)}
-                onEdit={() => { setEditEmp(emp); setViewEmp(null) }}
+                onView={() => navigate(`/employees/${emp.id}`)}
+                onEdit={() => setEditEmp(emp)}
                 onDelete={() => setDeleteEmp(emp)}
               />
             </div>
@@ -375,13 +375,6 @@ export default function EmployeeList() {
       )}
       {editEmp && (
         <AddEditEmployeeModal employee={editEmp} onSave={handleEdit} onClose={() => setEditEmp(null)} />
-      )}
-      {viewEmp && (
-        <ViewEmployeeModal
-          employee={viewEmp}
-          onClose={() => setViewEmp(null)}
-          onEdit={() => { setEditEmp(viewEmp); setViewEmp(null) }}
-        />
       )}
       {deleteEmp && (
         <DeleteConfirmModal

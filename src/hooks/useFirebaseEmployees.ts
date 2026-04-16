@@ -38,6 +38,7 @@ export interface FirebaseEmployee {
   // Optional
   skills?: string
   notes?: string
+  linkedinUrl?: string
 }
 
 export function useFirebaseEmployees() {

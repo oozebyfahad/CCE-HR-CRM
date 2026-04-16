@@ -35,6 +35,7 @@ export interface FirebaseStaffMember {
   taxNumber?: string
   skills?: string
   notes?: string
+  linkedinUrl?: string
   // which collection this record lives in
   _collection?: StaffCollection
 }
