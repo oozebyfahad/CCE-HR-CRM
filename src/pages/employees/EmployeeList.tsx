@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Plus, Download, MoreHorizontal, Eye, Pencil, Trash2, Users, Filter, DatabaseZap, ArrowUpDown, Check } from 'lucide-react'
+import { useAppSelector } from '../../store'
 import { format } from 'date-fns'
 import { Avatar } from '../../components/common/Avatar'
 import { Badge, statusVariant } from '../../components/common/Badge'
@@ -125,7 +126,9 @@ const STATUS_OPTS  = ['All', ...Object.keys(STATUS_LABELS)]
 
 // ── Main component ──────────────────────────────────────────────────────
 export default function EmployeeList() {
-  const navigate = useNavigate()
+  const navigate    = useNavigate()
+  const currentUser = useAppSelector(s => s.auth.user)
+  const isTeamLead  = currentUser?.role === 'team_lead'
   const { employees, loading, error, addEmployee, updateEmployee, deleteEmployee } = useFirebaseEmployees()
 
   const [search,    setSearch]    = useState('')
@@ -159,6 +162,8 @@ export default function EmployeeList() {
 
   const filtered = employees
     .filter(e => {
+      // Team leads only see their own team members
+      if (isTeamLead && e.manager !== currentUser?.name) return false
       const q = search.toLowerCase()
       const matchSearch = !q || e.name.toLowerCase().includes(q) || e.employeeId.toLowerCase().includes(q) || e.email.toLowerCase().includes(q) || e.jobTitle?.toLowerCase().includes(q)
       const matchDept   = dept === 'All'    || e.department    === dept
@@ -197,27 +202,33 @@ export default function EmployeeList() {
       {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="page-header">Employee Directory</h2>
-          <p className="page-sub">{employees.length} employees across {DEPARTMENTS.length - 1} departments</p>
+          <h2 className="page-header">{isTeamLead ? 'My Team' : 'Employee Directory'}</h2>
+          <p className="page-sub">
+            {isTeamLead
+              ? `${filtered.length} team member${filtered.length !== 1 ? 's' : ''} reporting to you`
+              : `${employees.length} employees across ${DEPARTMENTS.length - 1} departments`}
+          </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handleSeed}
-            disabled={seeding}
-            title="Seed dummy data (only works on empty database)"
-            className="btn-outline text-sm gap-2 disabled:opacity-50">
-            <DatabaseZap size={14} /> {seeding ? 'Seeding…' : 'Seed Data'}
-          </button>
-          <button
-            onClick={() => exportAllEmployees(filtered)}
-            disabled={filtered.length === 0}
-            className="btn-outline text-sm gap-2 disabled:opacity-40">
-            <Download size={14} /> Export
-          </button>
-          <button onClick={() => setAddOpen(true)} className="btn-primary text-sm gap-2">
-            <Plus size={14} /> Add Employee
-          </button>
-        </div>
+        {!isTeamLead && (
+          <div className="flex gap-2">
+            <button
+              onClick={handleSeed}
+              disabled={seeding}
+              title="Seed dummy data (only works on empty database)"
+              className="btn-outline text-sm gap-2 disabled:opacity-50">
+              <DatabaseZap size={14} /> {seeding ? 'Seeding…' : 'Seed Data'}
+            </button>
+            <button
+              onClick={() => exportAllEmployees(filtered)}
+              disabled={filtered.length === 0}
+              className="btn-outline text-sm gap-2 disabled:opacity-40">
+              <Download size={14} /> Export
+            </button>
+            <button onClick={() => setAddOpen(true)} className="btn-primary text-sm gap-2">
+              <Plus size={14} /> Add Employee
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Filters ── */}
@@ -352,11 +363,20 @@ export default function EmployeeList() {
 
             {/* Actions */}
             <div className="w-10 shrink-0 flex justify-end">
-              <ActionsMenu
-                onView={() => navigate(`/employees/${emp.id}`)}
-                onEdit={() => setEditEmp(emp)}
-                onDelete={() => setDeleteEmp(emp)}
-              />
+              {isTeamLead ? (
+                <button
+                  onClick={e => { e.stopPropagation(); navigate(`/employees/${emp.id}?tab=Timesheet`) }}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition text-xs text-primary font-medium"
+                  title="View Timesheet">
+                  <Eye size={14} />
+                </button>
+              ) : (
+                <ActionsMenu
+                  onView={() => navigate(`/employees/${emp.id}`)}
+                  onEdit={() => setEditEmp(emp)}
+                  onDelete={() => setDeleteEmp(emp)}
+                />
+              )}
             </div>
           </div>
         ))}

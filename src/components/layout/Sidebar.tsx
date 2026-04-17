@@ -3,7 +3,7 @@ import cceLogo from '../../assets/CCE-Logo.png'
 import {
   LayoutDashboard, Users, Clock, CalendarDays, TrendingUp,
   GraduationCap, Banknote, UserPlus, AlertTriangle, BarChart3,
-  Settings, LogOut, ChevronLeft, ChevronRight,
+  Settings, LogOut, ChevronLeft, ChevronRight, Timer,
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { logout } from '../../store/slices/authSlice'
@@ -13,8 +13,9 @@ import type { UserRole } from '../../types'
 
 const NAV: { path: string; label: string; Icon: React.ElementType; roles: UserRole[] }[] = [
   { path: '/dashboard',    label: 'Dashboard',       Icon: LayoutDashboard, roles: ['admin','hr','team_lead','employee'] },
-  { path: '/employees',    label: 'Employees',        Icon: Users,           roles: ['admin','hr'] },
-  { path: '/attendance',   label: 'Attendance',       Icon: Clock,           roles: ['admin','hr','team_lead','employee'] },
+  { path: '/my-time',      label: 'My Time',          Icon: Timer,           roles: ['employee','team_lead'] },
+  { path: '/employees',    label: 'Employees',        Icon: Users,           roles: ['admin','hr','team_lead'] },
+  { path: '/attendance',   label: 'Attendance',       Icon: Clock,           roles: ['admin','hr'] },
   { path: '/leave',        label: 'Leave Management', Icon: CalendarDays,    roles: ['admin','hr','team_lead','employee'] },
   { path: '/performance',  label: 'Performance',      Icon: TrendingUp,      roles: ['admin','hr','team_lead','employee'] },
   { path: '/training',     label: 'Training & Dev',   Icon: GraduationCap,   roles: ['admin','hr','team_lead'] },

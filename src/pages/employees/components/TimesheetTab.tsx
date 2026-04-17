@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Clock, ChevronLeft, ChevronRight, Plus, Edit2,
-  CheckCircle2, History, AlarmClock,
+  CheckCircle2, History, AlarmClock, UserCheck,
 } from 'lucide-react'
 import type { FirebaseEmployee } from '../../../hooks/useFirebaseEmployees'
 import {
   useFirebaseTimesheets, fmtHours, fmt12, weekMonday, toYMD,
-  calcHours, PROJECTS, type TimeEntry,
+  calcHours, PROJECTS, type TimeEntry, type AttendanceRecord,
 } from '../../../hooks/useFirebaseTimesheets'
 import { useAppSelector } from '../../../store'
 import { cn } from '../../../utils/cn'
@@ -24,6 +24,13 @@ const TYPE_STYLE: Record<string, string> = {
   holiday:  'bg-blue-100 text-blue-700',
   pto:      'bg-purple-100 text-purple-700',
 }
+
+const ATTENDANCE_OPTS: { v: AttendanceRecord['status']; l: string; dot: string; pill: string }[] = [
+  { v: 'present',  l: 'Present',  dot: 'bg-green-500',  pill: 'bg-green-100 text-green-700 border-green-200' },
+  { v: 'absent',   l: 'Absent',   dot: 'bg-red-500',    pill: 'bg-red-100 text-red-700 border-red-200' },
+  { v: 'late',     l: 'Late',     dot: 'bg-amber-500',  pill: 'bg-amber-100 text-amber-700 border-amber-200' },
+  { v: 'half_day', l: 'Half Day', dot: 'bg-purple-500', pill: 'bg-purple-100 text-purple-700 border-purple-200' },
+]
 
 // ── Helpers ───────────────────────────────────────────────────────────
 function addDays(d: Date, n: number): Date {
@@ -43,6 +50,64 @@ function fmtDayLabel(d: Date): string {
 const inp = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary'
 const lbl = 'block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5'
 
+// ── Attendance pill with dropdown ──────────────────────────────────────
+function AttendancePill({
+  date, attendance, onMark,
+}: {
+  date: string
+  attendance: AttendanceRecord[]
+  onMark: (date: string, status: AttendanceRecord['status'] | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const record = attendance.find(a => a.date === date)
+  const current = ATTENDANCE_OPTS.find(o => o.v === record?.status)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className={cn(
+          'text-[10px] px-2 py-0.5 rounded-full border font-medium transition whitespace-nowrap',
+          current ? current.pill : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'
+        )}>
+        {current ? current.l : '+ Mark'}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-6 z-30 bg-white border border-gray-100 rounded-xl shadow-xl py-1 min-w-[130px]">
+          <p className="px-3 pt-1.5 pb-0.5 text-[9px] font-bold text-gray-400 uppercase tracking-widest">Set Attendance</p>
+          {ATTENDANCE_OPTS.map(o => (
+            <button key={o.v} onClick={() => { onMark(date, o.v); setOpen(false) }}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 transition',
+                record?.status === o.v ? 'font-semibold text-secondary' : 'text-gray-700'
+              )}>
+              <span className={cn('w-2 h-2 rounded-full shrink-0', o.dot)} />
+              {o.l}
+              {record?.status === o.v && <CheckCircle2 size={10} className="ml-auto text-primary" />}
+            </button>
+          ))}
+          {record && (
+            <>
+              <div className="my-1 border-t border-gray-100" />
+              <button onClick={() => { onMark(date, null); setOpen(false) }}
+                className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-gray-50 transition">
+                Clear
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Add / Edit entry modal ─────────────────────────────────────────────
 function EntryModal({
   date, entry, employeeId, onSave, onDelete, onClose,
@@ -61,7 +126,7 @@ function EntryModal({
   const [note,      setNote]    = useState(entry?.note        ?? '')
   const [saving,    setSaving]  = useState(false)
 
-  const hours   = calcHours(startTime, endTime)
+  const hours    = calcHours(startTime, endTime)
   const dayLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 
   const save = async () => {
@@ -75,8 +140,6 @@ function EntryModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center shrink-0">
@@ -90,7 +153,6 @@ function EntryModal({
           <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition text-gray-400 text-sm">✕</button>
         </div>
 
-        {/* Body */}
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -110,13 +172,13 @@ function EntryModal({
 
           <div>
             <label className={lbl}>Type</label>
-            <select value={type} onChange={e => setType(e.target.value)} className={inp}>
+            <select value={type} onChange={e => setType(e.target.value as TimeEntry['type'])} className={inp}>
               {TYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}
             </select>
           </div>
 
           <div>
-            <label className={lbl}>Save time to… (Project / Task)</label>
+            <label className={lbl}>Project / Task</label>
             <select value={project} onChange={e => setProject(e.target.value)} className={inp}>
               <option value="">— Select Project / Task —</option>
               {PROJECTS.map(p => <option key={p}>{p}</option>)}
@@ -131,7 +193,6 @@ function EntryModal({
           </div>
         </div>
 
-        {/* Footer */}
         <div className="px-5 pb-5 flex items-center justify-between">
           {entry && onDelete
             ? <button onClick={async () => { await onDelete(); onClose() }} className="text-xs text-red-400 hover:text-red-600 transition font-medium">Delete Time Entry</button>
@@ -154,7 +215,7 @@ function ClockInModal({ onClockIn, onClose }: {
   const [project, setProject] = useState('')
   const [note,    setNote]    = useState('')
   const [saving,  setSaving]  = useState(false)
-  const now = new Date()
+  const now      = new Date()
   const dayLabel = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 
   const go = async () => {
@@ -180,7 +241,7 @@ function ClockInModal({ onClockIn, onClose }: {
         </div>
         <div className="p-5 space-y-4">
           <div>
-            <label className={lbl}>Save time to… (Project / Task)</label>
+            <label className={lbl}>Project / Task</label>
             <select value={project} onChange={e => setProject(e.target.value)} className={inp}>
               <option value="">— Select Project / Task —</option>
               {PROJECTS.map(p => <option key={p}>{p}</option>)}
@@ -226,18 +287,25 @@ function WeekBar({ days, entries }: { days: Date[]; entries: TimeEntry[] }) {
 // ── Main TimesheetTab ──────────────────────────────────────────────────
 export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
   const currentUser = useAppSelector(s => s.auth.user)
-  const canApprove  = ['admin', 'hr', 'team_lead'].includes(currentUser?.role ?? '')
+  const role        = currentUser?.role ?? 'employee'
 
-  const [weekStart,    setWeekStart]    = useState<Date>(() => weekMonday(new Date()))
-  const [editEntry,    setEditEntry]    = useState<TimeEntry | null>(null)
-  const [addingDay,    setAddingDay]    = useState<string | null>(null)
-  const [showClockIn,  setShowClockIn]  = useState(false)
-  const [liveTime,     setLiveTime]     = useState(new Date())
+  // Determine permissions based on who is viewing
+  const isOwnProfile      = currentUser?.email === emp.email
+  const canClockInOut     = isOwnProfile
+  const canMarkAttendance = (role === 'hr' || role === 'admin') && !isOwnProfile
+  const canEdit           = role === 'hr' || role === 'admin' || isOwnProfile
+  const canApprove        = (role === 'admin' || role === 'hr' || role === 'team_lead') && !isOwnProfile
+
+  const [weekStart,   setWeekStart]   = useState<Date>(() => weekMonday(new Date()))
+  const [editEntry,   setEditEntry]   = useState<TimeEntry | null>(null)
+  const [addingDay,   setAddingDay]   = useState<string | null>(null)
+  const [showClockIn, setShowClockIn] = useState(false)
+  const [liveTime,    setLiveTime]    = useState(new Date())
 
   const {
-    entries, approvals, loading,
+    entries, approvals, attendance, loading,
     addEntry, updateEntry, deleteEntry,
-    approveWeek, clockIn, clockOut,
+    approveWeek, markAttendance, clockIn, clockOut,
     currentlyClockedIn,
   } = useFirebaseTimesheets(emp.id)
 
@@ -247,7 +315,7 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
     return () => clearInterval(t)
   }, [])
 
-  const weekDays    = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+  const weekDays     = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
   const weekStartYMD = toYMD(weekStart)
   const weekEndYMD   = toYMD(addDays(weekStart, 6))
   const isThisWeek   = weekStartYMD === toYMD(weekMonday(new Date()))
@@ -268,8 +336,8 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
   return (
     <div>
       {/* ── Toolbar ── */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <select className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/20">
             <option>This Pay Period</option>
             <option>Last Pay Period</option>
@@ -295,12 +363,22 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
         </div>
       </div>
 
+      {/* ── HR attendance banner ── */}
+      {canMarkAttendance && (
+        <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-4">
+          <UserCheck size={14} className="text-blue-600 mt-0.5 shrink-0" />
+          <p className="text-xs text-blue-800">
+            You can mark daily attendance for this employee. Use the pill buttons on each day row.
+          </p>
+        </div>
+      )}
+
       <div className="flex gap-4 items-start">
 
         {/* ── Left: weekly calendar ── */}
         <div className="flex-1 min-w-0 card overflow-hidden">
 
-          {/* Week navigation header */}
+          {/* Week navigation */}
           <div className="flex items-center justify-between px-5 py-3 bg-gray-50/80 border-b border-gray-100">
             <button onClick={() => setWeekStart(d => addDays(d, -7))}
               className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-200 transition text-gray-500">
@@ -329,7 +407,7 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
 
             return (
               <div key={ymd} className={cn('border-b border-gray-50 last:border-0', isWeekend && 'bg-gray-50/30')}>
-                <div className="flex items-center px-5 py-3 gap-4 group">
+                <div className="flex items-center px-5 py-3 gap-3 group">
 
                   {/* Day label */}
                   <div className="w-16 shrink-0">
@@ -337,7 +415,7 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
                     <p className="text-[10px] text-gray-400">{fmtDayLabel(day)}</p>
                   </div>
 
-                  {/* Entries list */}
+                  {/* Entries */}
                   <div className="flex-1 min-w-0 space-y-1.5">
                     {dayEntries.length === 0
                       ? <span className="text-xs text-gray-300">—</span>
@@ -352,7 +430,7 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
                             {fmt12(e.startTime)}{e.endTime ? ` – ${fmt12(e.endTime)}` : ''}
                           </span>
                           {e.projectTask && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-primary/8 text-primary rounded font-medium truncate max-w-[130px]">
+                            <span className="text-[10px] px-1.5 py-0.5 bg-primary/8 text-primary rounded font-medium truncate max-w-[120px]">
                               {e.projectTask}
                             </span>
                           )}
@@ -362,26 +440,37 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
                             </span>
                           )}
                           {e.note && (
-                            <span className="text-[10px] text-gray-400 italic truncate max-w-[100px]" title={e.note}>{e.note}</span>
+                            <span className="text-[10px] text-gray-400 italic truncate max-w-[90px]" title={e.note}>{e.note}</span>
                           )}
-                          <button onClick={() => setEditEntry(e)}
-                            className="ml-auto opacity-0 group-hover/row:opacity-100 transition p-1 rounded hover:bg-gray-100">
-                            <Edit2 size={11} className="text-gray-400" />
-                          </button>
+                          {canEdit && (
+                            <button onClick={() => setEditEntry(e)}
+                              className="ml-auto opacity-0 group-hover/row:opacity-100 transition p-1 rounded hover:bg-gray-100">
+                              <Edit2 size={11} className="text-gray-400" />
+                            </button>
+                          )}
                         </div>
                       ))
                     }
                   </div>
 
-                  {/* Day total + add button */}
+                  {/* Day total + attendance + add */}
                   <div className="flex items-center gap-2 shrink-0">
                     {dayHours > 0 && (
                       <span className="text-xs font-bold text-secondary w-14 text-right">{fmtHours(dayHours)}</span>
                     )}
-                    <button onClick={() => setAddingDay(ymd)}
-                      className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 hover:bg-primary hover:text-white transition text-gray-400 opacity-0 group-hover:opacity-100">
-                      <Plus size={12} />
-                    </button>
+                    {canMarkAttendance && (
+                      <AttendancePill
+                        date={ymd}
+                        attendance={attendance}
+                        onMark={(date, status) => markAttendance(date, status, currentUser?.name ?? 'HR')}
+                      />
+                    )}
+                    {canEdit && (
+                      <button onClick={() => setAddingDay(ymd)}
+                        className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 hover:bg-primary hover:text-white transition text-gray-400 opacity-0 group-hover:opacity-100">
+                        <Plus size={12} />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -398,38 +487,40 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
         {/* ── Right: status panel ── */}
         <div className="w-52 shrink-0 space-y-3">
 
-          {/* Clock in/out card */}
-          <div className="card p-4 text-center space-y-2.5">
-            {currentlyClockedIn ? (
-              <>
-                <div className="flex items-center justify-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                  <span className="text-xs font-bold text-green-600">Clocked In</span>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-secondary leading-tight">{liveDuration}</p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">Since {fmt12(currentlyClockedIn.startTime)}</p>
-                </div>
-                <button
-                  onClick={() => clockOut(currentlyClockedIn.id, currentlyClockedIn.startTime!)}
-                  className="w-full py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold rounded-lg transition">
-                  Clock Out
-                </button>
-              </>
-            ) : (
-              <>
-                <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Not Clocked In</p>
-                <p className="text-xl font-bold text-secondary">
-                  {liveTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                </p>
-                <button
-                  onClick={() => setShowClockIn(true)}
-                  className="w-full py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg transition flex items-center justify-center gap-1.5">
-                  <Clock size={13} /> Clock In
-                </button>
-              </>
-            )}
-          </div>
+          {/* Clock in/out card — only for the employee's own profile */}
+          {canClockInOut && (
+            <div className="card p-4 text-center space-y-2.5">
+              {currentlyClockedIn ? (
+                <>
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                    <span className="text-xs font-bold text-green-600">Clocked In</span>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-secondary leading-tight">{liveDuration}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">Since {fmt12(currentlyClockedIn.startTime)}</p>
+                  </div>
+                  <button
+                    onClick={() => clockOut(currentlyClockedIn.id, currentlyClockedIn.startTime!)}
+                    className="w-full py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold rounded-lg transition">
+                    Clock Out
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Not Clocked In</p>
+                  <p className="text-xl font-bold text-secondary">
+                    {liveTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  <button
+                    onClick={() => setShowClockIn(true)}
+                    className="w-full py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg transition flex items-center justify-center gap-1.5">
+                    <Clock size={13} /> Clock In
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Weekly stats */}
           <div className="card p-4 space-y-3">
@@ -446,8 +537,8 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
             </div>
           </div>
 
-          {/* Reminder */}
-          {!isApproved && weekTotal > 0 && (
+          {/* Reminder for employee */}
+          {canClockInOut && !isApproved && weekTotal > 0 && (
             <div className="card p-3 bg-amber-50 border border-amber-100">
               <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest mb-1">Reminder</p>
               <p className="text-[10px] text-amber-600 leading-relaxed">
@@ -456,10 +547,23 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
             </div>
           )}
 
-          {/* Empty week nudge */}
-          {weekTotal === 0 && !loading && isThisWeek && (
+          {/* Empty week nudge for own profile */}
+          {canClockInOut && weekTotal === 0 && !loading && isThisWeek && (
             <div className="card p-3 text-center">
-              <p className="text-[10px] text-gray-400 leading-relaxed">No hours logged this week. Use Clock In or add entries manually.</p>
+              <p className="text-[10px] text-gray-400 leading-relaxed">No hours this week. Use Clock In or add entries manually.</p>
+            </div>
+          )}
+
+          {/* HR attendance legend */}
+          {canMarkAttendance && (
+            <div className="card p-3 space-y-2">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Attendance Legend</p>
+              {ATTENDANCE_OPTS.map(o => (
+                <div key={o.v} className="flex items-center gap-2">
+                  <span className={cn('w-2 h-2 rounded-full shrink-0', o.dot)} />
+                  <span className="text-[10px] text-gray-600">{o.l}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -472,7 +576,7 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
         <EntryModal
           date={addingDay}
           employeeId={emp.id}
-          onSave={data => addEntry(data)}
+          onSave={async data => { await addEntry(data) }}
           onClose={() => setAddingDay(null)}
         />
       )}

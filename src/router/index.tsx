@@ -15,6 +15,7 @@ import Disciplinary    from '../pages/disciplinary/Disciplinary'
 import Payroll         from '../pages/payroll/Payroll'
 import Reports         from '../pages/reports/Reports'
 import Settings        from '../pages/settings/Settings'
+import MyTime          from '../pages/my-time/MyTime'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAppSelector(s => s.auth)
@@ -38,6 +39,7 @@ export function AppRouter() {
         <Route path="dashboard"    element={<HRDashboard />} />
         <Route path="employees"    element={<EmployeeList />} />
         <Route path="employees/:id" element={<EmployeeProfile />} />
+        <Route path="my-time"      element={<MyTime />} />
         <Route path="attendance"   element={<Attendance />} />
         <Route path="leave"        element={<LeaveManagement />} />
         <Route path="performance"  element={<Performance />} />

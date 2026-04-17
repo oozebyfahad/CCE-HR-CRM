@@ -5,6 +5,14 @@ import {
 } from 'firebase/firestore'
 import { db } from '../config/firebase'
 
+export interface AttendanceRecord {
+  id: string
+  employeeId: string
+  date: string          // 'YYYY-MM-DD'
+  status: 'present' | 'absent' | 'late' | 'half_day'
+  markedBy?: string
+}
+
 export interface TimeEntry {
   id: string
   employeeId: string
@@ -73,9 +81,10 @@ export const PROJECTS = [
 
 // ── Single-employee hook ───────────────────────────────────────────────
 export function useFirebaseTimesheets(employeeId: string) {
-  const [entries,   setEntries]   = useState<TimeEntry[]>([])
-  const [approvals, setApprovals] = useState<TimesheetApproval[]>([])
-  const [loading,   setLoading]   = useState(true)
+  const [entries,    setEntries]    = useState<TimeEntry[]>([])
+  const [approvals,  setApprovals]  = useState<TimesheetApproval[]>([])
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([])
+  const [loading,    setLoading]    = useState(true)
 
   useEffect(() => {
     if (!employeeId) { setLoading(false); return }
@@ -96,6 +105,14 @@ export function useFirebaseTimesheets(employeeId: string) {
     )
   }, [employeeId])
 
+  useEffect(() => {
+    if (!employeeId) return
+    const q = query(collection(db, 'attendance_records'), where('employeeId', '==', employeeId))
+    return onSnapshot(q, snap =>
+      setAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceRecord)))
+    )
+  }, [employeeId])
+
   const addEntry = async (data: Omit<TimeEntry, 'id'>) =>
     addDoc(collection(db, 'time_entries'), { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })
 
@@ -110,6 +127,17 @@ export function useFirebaseTimesheets(employeeId: string) {
     const payload  = { employeeId, weekStart, status: 'approved', approvedBy, approvedAt: serverTimestamp() }
     if (existing) await updateDoc(doc(db, 'timesheet_approvals', existing.id), payload)
     else           await addDoc(collection(db, 'timesheet_approvals'), payload)
+  }
+
+  const markAttendance = async (date: string, status: AttendanceRecord['status'] | null, markedBy: string) => {
+    const existing = attendance.find(a => a.date === date)
+    if (status === null) {
+      if (existing) await deleteDoc(doc(db, 'attendance_records', existing.id))
+      return
+    }
+    const payload = { employeeId, date, status, markedBy, markedAt: serverTimestamp() }
+    if (existing) await updateDoc(doc(db, 'attendance_records', existing.id), payload)
+    else           await addDoc(collection(db, 'attendance_records'), payload)
   }
 
   const clockIn = async (projectTask?: string, note?: string) => {
@@ -128,9 +156,9 @@ export function useFirebaseTimesheets(employeeId: string) {
   }
 
   return {
-    entries, approvals, loading,
+    entries, approvals, attendance, loading,
     addEntry, updateEntry, deleteEntry,
-    approveWeek, clockIn, clockOut,
+    approveWeek, markAttendance, clockIn, clockOut,
     currentlyClockedIn: entries.find(e => e.clockedIn),
   }
 }
