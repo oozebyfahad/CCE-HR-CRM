@@ -1,10 +1,11 @@
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
-import { AlertTriangle, Star } from 'lucide-react'
+import { AlertTriangle, Star, Clock, CalendarDays, Briefcase, Users } from 'lucide-react'
 import { KPICard } from '../../components/common/KPICard'
 import { Avatar } from '../../components/common/Avatar'
 import {
@@ -13,6 +14,8 @@ import {
 } from '../../utils/mockData'
 import { LEAVE_TYPE_LABELS } from '../../utils/constants'
 import { useAppSelector } from '../../store'
+import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useFirebaseTimesheets, fmt12, toYMD } from '../../hooks/useFirebaseTimesheets'
 
 // ── Admin / HR KPIs ───────────────────────────────────────────────────
 const KPI_DATA = [
@@ -465,146 +468,299 @@ function TeamLeadDashboard({ name }: { name: string }) {
   )
 }
 
-// ── Employee dashboard ────────────────────────────────────────────────
-function EmployeeDashboard({ name }: { name: string }) {
-  const navigate = useNavigate()
-  const myTotal  = MY_ATTEND.reduce((s, a) => s + a.value, 0)
+// ── Circular ring SVG ────────────────────────────────────────────────
+function Ring({ progress, color, size = 130, stroke = 11 }: { progress: number; color: string; size?: number; stroke?: number }) {
+  const r      = (size - stroke * 2) / 2
+  const cx     = size / 2
+  const circ   = 2 * Math.PI * r
+  const offset = circ - Math.min(1, Math.max(0, progress)) * circ
+  return (
+    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+      <circle cx={cx} cy={cx} r={r} fill="none" stroke="#E5E7EB" strokeWidth={stroke} />
+      <circle cx={cx} cy={cx} r={r} fill="none" stroke={color} strokeWidth={stroke}
+        strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// ── Mini calendar ─────────────────────────────────────────────────────
+function MiniCalendar() {
+  const today      = new Date()
+  const year       = today.getFullYear()
+  const month      = today.getMonth()
+  const monthName  = today.toLocaleDateString('en-GB', { month: 'long' })
+  const daysInMo   = new Date(year, month + 1, 0).getDate()
+  const startDay   = new Date(year, month, 1).getDay()
+  const DAY_HEADS  = ['S','M','T','W','T','F','S']
 
   return (
-    <div className="space-y-5">
-      {/* Greeting banner */}
-      <div className="bg-gradient-to-r from-emerald-600 to-teal-700 rounded-2xl px-6 py-5 text-white">
-        <p className="text-sm opacity-80">Welcome back,</p>
-        <p className="text-xl font-bold mt-0.5">{name}</p>
-        <p className="text-xs opacity-70 mt-1">Here's your personal overview for this month.</p>
-      </div>
-
-      {/* Personal KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: 'Days Present',    value: '18', sub: 'This month',    color: '#10B981' },
-          { label: 'Leave Balance',   value: '12', sub: 'Days remaining', color: '#2E86C1' },
-          { label: 'My Score',        value: '8.4',sub: '/ 10 — Good',   color: '#8B5CF6' },
-          { label: 'Next Review',     value: '14d',sub: 'Scheduled',     color: '#F59E0B' },
-        ].map(k => (
-          <div key={k.label} className="card p-4 flex flex-col gap-1" style={{ borderLeft: `3px solid ${k.color}` }}>
-            <p className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">{k.label}</p>
-            <p className="text-2xl font-bold text-secondary">{k.value}</p>
-            <p className="text-[10px] text-gray-400">{k.sub}</p>
-          </div>
+    <div>
+      <p className="text-xs font-bold text-secondary text-center mb-2">{monthName} {year}</p>
+      <div className="grid grid-cols-7 gap-0.5 text-center mb-1">
+        {DAY_HEADS.map((d, i) => (
+          <span key={i} className="text-[9px] text-gray-400 font-semibold">{d}</span>
         ))}
       </div>
+      <div className="grid grid-cols-7 gap-0.5 text-center">
+        {Array(startDay).fill(null).map((_, i) => <span key={`e${i}`} />)}
+        {Array.from({ length: daysInMo }, (_, i) => i + 1).map(d => (
+          <button key={d}
+            className={`w-full aspect-square text-[10px] rounded-full flex items-center justify-center mx-auto transition-colors
+              ${d === today.getDate() ? 'bg-primary text-white font-bold' : 'text-gray-600 hover:bg-gray-100'}`}>
+            {d}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
+// ── Employee dashboard ────────────────────────────────────────────────
+function EmployeeDashboard({ name }: { name: string }) {
+  const navigate    = useNavigate()
+  const currentUser = useAppSelector(s => s.auth.user)
+  const { employees } = useFirebaseEmployees()
+  const [liveTime,   setLiveTime]   = useState(new Date())
+  const [clockingIn, setClockingIn] = useState(false)
+
+  const myEmployee = employees.find(e => e.email === currentUser?.email)
+
+  const {
+    entries, currentlyClockedIn, clockIn, clockOut,
+  } = useFirebaseTimesheets(myEmployee?.id ?? '')
+
+  // Tick every second for live timer
+  useEffect(() => {
+    const t = setInterval(() => setLiveTime(new Date()), 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  // Today's totals
+  const todayYMD     = toYMD(new Date())
+  const todayEntries = entries.filter(e => e.date === todayYMD)
+  const loggedHours  = todayEntries.filter(e => !e.clockedIn).reduce((s, e) => s + e.hours, 0)
+
+  // Live duration (logged + current session)
+  let liveHours = loggedHours
+  if (currentlyClockedIn?.startTime) {
+    const [sh, sm] = currentlyClockedIn.startTime.split(':').map(Number)
+    const diffM    = liveTime.getHours() * 60 + liveTime.getMinutes() - sh * 60 - sm
+    liveHours     += Math.max(0, diffM / 60)
+  }
+
+  const TARGET = 8
+  const ringPct = Math.min(1, liveHours / TARGET)
+  const hrs  = Math.floor(liveHours)
+  const mins = Math.floor((liveHours - hrs) * 60)
+  const secs = currentlyClockedIn ? liveTime.getSeconds() : 0
+  const liveStr = `${String(hrs).padStart(2,'0')}:${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`
+
+  const firstIn  = todayEntries.length > 0 ? todayEntries[todayEntries.length - 1]?.startTime : undefined
+  const lastOut  = todayEntries.find(e => e.endTime && !e.clockedIn)?.endTime
+  const punchIn  = currentlyClockedIn?.startTime ?? firstIn
+  const punchOut = lastOut
+
+  const greeting = (() => {
+    const h = liveTime.getHours()
+    if (h < 12) return 'Good Morning'
+    if (h < 17) return 'Good Afternoon'
+    return 'Good Evening'
+  })()
+  const firstName = name.split(' ')[0]
+
+  const handleClockIn = async () => {
+    setClockingIn(true)
+    try { await clockIn() } finally { setClockingIn(false) }
+  }
+
+  // Leave totals (mock — same as before)
+  const leaveUsed  = 8
+  const leaveTotal = 20
+  const leaveLeft  = leaveTotal - leaveUsed
+
+  const QUICK_STATUS = [
+    {
+      icon: Briefcase, label: 'Project',
+      sub: 'Customer Service Operations',
+      note: '', noteColor: '',
+    },
+    {
+      icon: CalendarDays, label: 'Leave',
+      sub: 'Annual leave · 12 days left',
+      note: 'Active', noteColor: 'text-green-600',
+    },
+    {
+      icon: Star, label: 'Holiday',
+      sub: 'Next public holiday',
+      note: 'Good Friday · 18 Apr', noteColor: 'text-primary',
+    },
+    {
+      icon: Users, label: 'Team',
+      sub: 'Team standup at 09:30',
+      note: 'Today', noteColor: 'text-amber-600',
+    },
+  ]
+
+  return (
+    <div className="space-y-4">
+
+      {/* ── Row 1: Attendance | Greeting | Calendar ── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* My attendance this month */}
-        <div className="card p-5 lg:col-span-4">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <p className="text-sm font-semibold text-secondary">My Attendance</p>
-              <p className="text-xs text-gray-400">This month</p>
+
+        {/* Attendance ring card */}
+        <div className="lg:col-span-3 card p-5 flex flex-col items-center gap-4">
+          <p className="text-sm font-bold text-secondary self-start">Attendance</p>
+
+          {/* Ring */}
+          <div className="relative flex items-center justify-center">
+            <Ring progress={ringPct} color="#2E86C1" size={140} stroke={12} />
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <p className="text-xl font-bold text-secondary font-mono leading-tight">{liveStr}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Working Hours</p>
             </div>
-            <button onClick={() => navigate('/attendance')} className="text-xs text-primary hover:underline">Full view →</button>
+            {/* dot on ring end */}
+            {ringPct > 0 && (
+              <div className="absolute w-3 h-3 rounded-full bg-primary border-2 border-white shadow"
+                style={{
+                  top: `calc(50% - ${Math.sin((ringPct * 2 * Math.PI) - Math.PI / 2) * 58}px - 6px)`,
+                  left: `calc(50% + ${Math.cos((ringPct * 2 * Math.PI) - Math.PI / 2) * 58}px - 6px)`,
+                }} />
+            )}
           </div>
-          <div className="grid grid-cols-4 gap-2 mb-4">
-            {MY_ATTEND.map(a => (
-              <div key={a.label} className="rounded-xl p-2.5 text-center" style={{ backgroundColor: `${a.color}12` }}>
-                <p className="text-xl font-bold" style={{ color: a.color }}>{a.value}</p>
-                <p className="text-[10px] text-gray-500 mt-0.5">{a.label}</p>
-              </div>
-            ))}
+
+          {/* Punch times */}
+          <div className="w-full bg-secondary rounded-xl px-4 py-3 flex justify-between items-center">
+            <div className="text-center">
+              <p className="text-[9px] text-gray-400 uppercase tracking-widest font-medium">Punch in</p>
+              <p className="text-sm font-bold text-white mt-0.5">{punchIn ? fmt12(punchIn) : '--:--'}</p>
+            </div>
+            <div className="w-px h-8 bg-white/10" />
+            <div className="text-center">
+              <p className="text-[9px] text-gray-400 uppercase tracking-widest font-medium">Punch out</p>
+              <p className="text-sm font-bold text-white mt-0.5">{punchOut ? fmt12(punchOut) : '--:--'}</p>
+            </div>
           </div>
-          <div className="flex h-2 rounded-full overflow-hidden">
-            {MY_ATTEND.map(a => (
-              <div key={a.label} style={{ width: `${(a.value / myTotal) * 100}%`, backgroundColor: a.color }} />
-            ))}
-          </div>
-          <p className="text-xs font-medium text-secondary mt-2">Attendance Rate: <span className="text-green-600">90%</span></p>
+
+          {/* Clock in/out button */}
+          {currentlyClockedIn ? (
+            <button
+              onClick={() => clockOut(currentlyClockedIn.id, currentlyClockedIn.startTime!)}
+              className="w-full py-2.5 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded-xl transition flex items-center justify-center gap-2">
+              <Clock size={14} /> Punch Out
+            </button>
+          ) : (
+            <button
+              onClick={handleClockIn}
+              disabled={clockingIn}
+              className="w-full py-2.5 bg-primary hover:bg-primary/90 text-white text-sm font-bold rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-60">
+              <Clock size={14} /> {clockingIn ? 'Clocking in…' : 'Punch In'}
+            </button>
+          )}
         </div>
 
-        {/* Performance score */}
-        <div className="card p-5 lg:col-span-4">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <p className="text-sm font-semibold text-secondary">My Performance</p>
-              <p className="text-xs text-gray-400">Q1 2026 review cycle</p>
-            </div>
-            <button onClick={() => navigate('/performance')} className="text-xs text-primary hover:underline">Details →</button>
+        {/* Greeting card */}
+        <div className="lg:col-span-5 card overflow-hidden relative flex flex-col justify-between p-6" style={{ minHeight: 220 }}>
+          {/* Background decoration */}
+          <div className="absolute -right-8 -top-8 w-40 h-40 rounded-full opacity-5 bg-primary" />
+          <div className="absolute -right-4 top-8 w-28 h-28 rounded-full opacity-[0.07] bg-primary" />
+
+          <div>
+            <p className="text-sm text-gray-400">Hi, {firstName}</p>
+            <p className="text-2xl font-bold text-secondary mt-0.5">{greeting}</p>
+            <p className="text-xs text-gray-400 mt-1">
+              {currentlyClockedIn
+                ? `You've been working for ${liveStr} today.`
+                : liveHours > 0
+                  ? `You logged ${String(hrs).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m today.`
+                  : "Don't forget to punch in when you start work."}
+            </p>
           </div>
-          <div className="flex items-center gap-5 mb-4">
-            <div className="w-20 h-20 rounded-full border-4 border-violet-200 flex flex-col items-center justify-center">
-              <span className="text-2xl font-bold text-violet-600 leading-none">8.4</span>
-              <span className="text-[9px] text-gray-400">/10</span>
-            </div>
-            <div className="space-y-2 flex-1">
-              {[
-                { label: 'Quality',      val: 88 },
-                { label: 'Punctuality',  val: 92 },
-                { label: 'Teamwork',     val: 80 },
-              ].map(item => (
-                <div key={item.label}>
-                  <div className="flex justify-between mb-0.5">
-                    <span className="text-[10px] text-gray-500">{item.label}</span>
-                    <span className="text-[10px] font-semibold text-secondary">{item.val}%</span>
-                  </div>
-                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${item.val}%` }} />
-                  </div>
-                </div>
-              ))}
+
+          {/* Illustration placeholder */}
+          <div className="absolute right-6 top-1/2 -translate-y-1/2">
+            <div className="w-24 h-24 bg-primary/5 rounded-full flex items-center justify-center">
+              <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                <span className="text-4xl">💻</span>
+              </div>
             </div>
           </div>
-          <div className="bg-green-50 border border-green-100 rounded-lg px-3 py-2 flex items-center gap-2">
-            <Star size={13} className="text-green-600 shrink-0" />
-            <p className="text-xs text-green-700 font-medium">Great work — above team average (7.8)</p>
+
+          {/* Status badges */}
+          <div className="flex items-center gap-2 mt-4 flex-wrap">
+            {currentlyClockedIn ? (
+              <span className="flex items-center gap-1.5 text-xs font-semibold bg-green-100 text-green-700 px-3 py-1 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Clocked In
+              </span>
+            ) : (
+              <span className="text-xs font-semibold bg-gray-100 text-gray-500 px-3 py-1 rounded-full">Not Clocked In</span>
+            )}
+            <span className="text-xs font-semibold bg-blue-50 text-primary px-3 py-1 rounded-full">
+              {leaveLeft} leave days left
+            </span>
           </div>
         </div>
 
-        {/* Leave balance + upcoming */}
-        <div className="card p-5 lg:col-span-4">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <p className="text-sm font-semibold text-secondary">Leave Balance</p>
-              <p className="text-xs text-gray-400">Annual entitlement</p>
-            </div>
-            <button onClick={() => navigate('/leave')} className="text-xs text-primary hover:underline">Request →</button>
+        {/* Calendar card */}
+        <div className="lg:col-span-4 card p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-bold text-secondary">Calendar</p>
+            <button onClick={() => navigate('/leave')} className="text-xs text-primary hover:underline">Leave →</button>
           </div>
-          <div className="space-y-3 mb-4">
-            {[
-              { type: 'Annual Leave',   used: 8,  total: 20, color: '#2E86C1' },
-              { type: 'Sick Leave',     used: 2,  total: 10, color: '#10B981' },
-              { type: 'Unpaid Leave',   used: 0,  total: 5,  color: '#8B5CF6' },
-            ].map(l => (
-              <div key={l.type}>
-                <div className="flex justify-between mb-1">
-                  <span className="text-xs text-gray-500">{l.type}</span>
-                  <span className="text-xs font-semibold text-secondary">{l.used}/{l.total} used</span>
-                </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all" style={{ width: `${(l.used / l.total) * 100}%`, backgroundColor: l.color }} />
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-            <p className="text-xs text-blue-700 font-medium">12 days remaining</p>
-            <p className="text-[10px] text-blue-500 mt-0.5">Resets on 1 Jan 2027</p>
+          <MiniCalendar />
+          <div className="flex gap-1.5 mt-3 flex-wrap">
+            <span className="text-[10px] font-semibold bg-primary/10 text-primary px-2 py-0.5 rounded-full">At work</span>
+            <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">On leave</span>
+            <span className="text-[10px] font-semibold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full cursor-pointer hover:bg-gray-200 transition"
+              onClick={() => navigate('/leave')}>+ Request</span>
           </div>
         </div>
       </div>
 
-      {/* Quick actions */}
-      <div className="card p-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <p className="text-sm font-semibold text-secondary">Quick Actions</p>
-          <div className="flex items-center gap-2 flex-wrap">
-            {[
-              { label: '📅 Request Leave',     path: '/leave'       },
-              { label: '📊 My Performance',    path: '/performance' },
-              { label: '🕐 Attendance Log',    path: '/attendance'  },
-            ].map(q => (
-              <button key={q.label} onClick={() => navigate(q.path)} className="btn-outline text-xs">{q.label}</button>
-            ))}
+      {/* ── Row 2: Quick status | Leave stats ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+        {/* Quick status 2×2 */}
+        <div className="lg:col-span-8 grid grid-cols-2 gap-4">
+          <p className="col-span-2 text-sm font-bold text-secondary -mb-1">Quick status</p>
+          {QUICK_STATUS.map(({ icon: Icon, label, sub, note, noteColor }) => (
+            <div key={label} className="card p-4 flex items-start gap-3 overflow-hidden relative">
+              {/* decorative circle */}
+              <div className="absolute -right-6 -bottom-6 w-20 h-20 rounded-full opacity-[0.08] bg-primary" />
+              <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
+                <Icon size={15} className="text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-secondary">{label}</p>
+                <p className="text-[11px] text-gray-400 mt-0.5 leading-snug">{sub}</p>
+                {note && <p className={`text-[11px] font-semibold mt-0.5 ${noteColor}`}>{note}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Leave stats */}
+        <div className="lg:col-span-4 card p-5 flex flex-col items-center gap-4">
+          <div className="w-full flex items-center justify-between">
+            <p className="text-sm font-bold text-secondary">Leave stats</p>
+            <button onClick={() => navigate('/leave')} className="text-xs text-primary hover:underline">Details →</button>
           </div>
+
+          {/* Leave ring */}
+          <div className="relative flex items-center justify-center">
+            <Ring progress={leaveLeft / leaveTotal} color="#2E86C1" size={110} stroke={10} />
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <p className="text-2xl font-bold text-secondary leading-tight">{leaveLeft}</p>
+              <p className="text-[10px] text-gray-400">Days left</p>
+            </div>
+          </div>
+
+          <p className="text-xl font-bold text-secondary">{leaveLeft}/{leaveTotal}</p>
+
+          <button
+            onClick={() => navigate('/leave')}
+            className="w-full py-2.5 bg-primary hover:bg-primary/90 text-white text-sm font-bold rounded-xl transition">
+            Apply for leave
+          </button>
         </div>
       </div>
     </div>

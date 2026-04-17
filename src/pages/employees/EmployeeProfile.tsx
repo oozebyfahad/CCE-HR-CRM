@@ -266,7 +266,7 @@ export default function EmployeeProfile() {
               ['Type',       EMPLOYMENT_TYPE_LABELS[emp.employmentType] ?? emp.employmentType],
               ['Department', emp.department],
               emp.workLocation ? ['Location', emp.workLocation] : null,
-            ] as ([string,string] | null)[]).filter(Boolean).map(([k, v]) => (
+            ] as ([string,string] | null)[]).filter((x): x is [string,string] => x !== null).map(([k, v]) => (
               <div key={k}>
                 <p className="text-[9px] text-gray-400 uppercase tracking-wide">{k}</p>
                 <p className="text-xs font-semibold text-secondary mt-0.5">{v}</p>
