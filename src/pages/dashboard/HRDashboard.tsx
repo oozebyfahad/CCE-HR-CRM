@@ -5,7 +5,7 @@ import {
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
-import { AlertTriangle, Star, Clock, CalendarDays, Briefcase, Users } from 'lucide-react'
+import { AlertTriangle, Star, Clock, CalendarDays, Briefcase, Users, X, CheckCircle2 } from 'lucide-react'
 import { KPICard } from '../../components/common/KPICard'
 import { Avatar } from '../../components/common/Avatar'
 import {
@@ -16,6 +16,8 @@ import { LEAVE_TYPE_LABELS } from '../../utils/constants'
 import { useAppSelector } from '../../store'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
 import { useFirebaseTimesheets, fmt12, toYMD } from '../../hooks/useFirebaseTimesheets'
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
+import { db } from '../../config/firebase'
 
 // ── Admin / HR KPIs ───────────────────────────────────────────────────
 const KPI_DATA = [
@@ -468,6 +470,142 @@ function TeamLeadDashboard({ name }: { name: string }) {
   )
 }
 
+// ── Leave request modal ───────────────────────────────────────────────
+const LEAVE_TYPES = [
+  { v: 'annual',     l: 'Annual Leave'      },
+  { v: 'sick',       l: 'Sick Leave'        },
+  { v: 'toil',       l: 'TOIL'             },
+  { v: 'unpaid',     l: 'Unpaid Leave'      },
+  { v: 'maternity',  l: 'Maternity Leave'   },
+  { v: 'paternity',  l: 'Paternity Leave'   },
+  { v: 'compassionate', l: 'Compassionate'  },
+]
+
+const inp = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-white text-gray-800'
+
+function LeaveRequestModal({ employeeName, employeeId, onClose }: {
+  employeeName: string
+  employeeId: string
+  onClose: () => void
+}) {
+  const [type,      setType]      = useState('annual')
+  const [startDate, setStartDate] = useState('')
+  const [endDate,   setEndDate]   = useState('')
+  const [reason,    setReason]    = useState('')
+  const [saving,    setSaving]    = useState(false)
+  const [done,      setDone]      = useState(false)
+
+  const dayCount = startDate && endDate
+    ? Math.max(0, Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000) + 1)
+    : 0
+
+  const handleSubmit = async () => {
+    if (!startDate || !endDate) return
+    setSaving(true)
+    try {
+      await addDoc(collection(db, 'leave_requests'), {
+        employeeId,
+        employeeName,
+        type,
+        startDate,
+        endDate,
+        days: dayCount,
+        reason,
+        status: 'pending',
+        submittedAt: serverTimestamp(),
+      })
+      setDone(true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center">
+              <CalendarDays size={16} className="text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-secondary">Apply for Leave</p>
+              <p className="text-xs text-gray-400">{employeeName}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition text-gray-400">
+            <X size={15} />
+          </button>
+        </div>
+
+        {done ? (
+          /* Success state */
+          <div className="p-8 flex flex-col items-center gap-3 text-center">
+            <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center">
+              <CheckCircle2 size={28} className="text-green-600" />
+            </div>
+            <p className="text-base font-bold text-secondary">Request Submitted</p>
+            <p className="text-xs text-gray-400">Your leave request has been sent for approval. You'll be notified once it's reviewed.</p>
+            <button onClick={onClose} className="btn-primary text-sm mt-2 px-6">Done</button>
+          </div>
+        ) : (
+          <>
+            {/* Body */}
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Leave Type</label>
+                <select value={type} onChange={e => setType(e.target.value)} className={inp}>
+                  {LEAVE_TYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Start Date</label>
+                  <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]} className={inp} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">End Date</label>
+                  <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+                    min={startDate || new Date().toISOString().split('T')[0]} className={inp} />
+                </div>
+              </div>
+
+              {dayCount > 0 && (
+                <div className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-lg px-4 py-2.5">
+                  <span className="text-xs text-gray-500 font-medium">Duration</span>
+                  <span className="text-sm font-bold text-primary">{dayCount} day{dayCount !== 1 ? 's' : ''}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Reason <span className="text-gray-300 normal-case font-normal">(optional)</span></label>
+                <textarea value={reason} onChange={e => setReason(e.target.value)}
+                  rows={3} placeholder="Brief reason for leave…"
+                  className={`${inp} resize-none`} />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 pb-6 flex gap-2 justify-end">
+              <button onClick={onClose} className="btn-outline text-sm px-4">Cancel</button>
+              <button
+                onClick={handleSubmit}
+                disabled={saving || !startDate || !endDate}
+                className="btn-primary text-sm px-6 disabled:opacity-50">
+                {saving ? 'Submitting…' : 'Submit Request'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Circular ring SVG ────────────────────────────────────────────────
 function Ring({ progress, color, size = 130, stroke = 11 }: { progress: number; color: string; size?: number; stroke?: number }) {
   const r      = (size - stroke * 2) / 2
@@ -520,8 +658,9 @@ function EmployeeDashboard({ name }: { name: string }) {
   const navigate    = useNavigate()
   const currentUser = useAppSelector(s => s.auth.user)
   const { employees } = useFirebaseEmployees()
-  const [liveTime,   setLiveTime]   = useState(new Date())
-  const [clockingIn, setClockingIn] = useState(false)
+  const [liveTime,    setLiveTime]    = useState(new Date())
+  const [clockingIn,  setClockingIn]  = useState(false)
+  const [leaveModal,  setLeaveModal]  = useState(false)
 
   const myEmployee = employees.find(e => e.email === currentUser?.email)
 
@@ -742,7 +881,6 @@ function EmployeeDashboard({ name }: { name: string }) {
         <div className="lg:col-span-4 card p-5 flex flex-col items-center gap-4">
           <div className="w-full flex items-center justify-between">
             <p className="text-sm font-bold text-secondary">Leave stats</p>
-            <button onClick={() => navigate('/leave')} className="text-xs text-primary hover:underline">Details →</button>
           </div>
 
           {/* Leave ring */}
@@ -757,12 +895,21 @@ function EmployeeDashboard({ name }: { name: string }) {
           <p className="text-xl font-bold text-secondary">{leaveLeft}/{leaveTotal}</p>
 
           <button
-            onClick={() => navigate('/leave')}
+            onClick={() => setLeaveModal(true)}
             className="w-full py-2.5 bg-primary hover:bg-primary/90 text-white text-sm font-bold rounded-xl transition">
             Apply for leave
           </button>
         </div>
       </div>
+
+      {/* Leave request modal */}
+      {leaveModal && (
+        <LeaveRequestModal
+          employeeName={name}
+          employeeId={myEmployee?.id ?? ''}
+          onClose={() => setLeaveModal(false)}
+        />
+      )}
     </div>
   )
 }

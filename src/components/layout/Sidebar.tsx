@@ -16,7 +16,7 @@ const NAV: { path: string; label: string; Icon: React.ElementType; roles: UserRo
   { path: '/my-time',      label: 'My Time',          Icon: Timer,           roles: ['employee','team_lead'] },
   { path: '/employees',    label: 'Employees',        Icon: Users,           roles: ['admin','hr','team_lead'] },
   { path: '/attendance',   label: 'Attendance',       Icon: Clock,           roles: ['admin','hr'] },
-  { path: '/leave',        label: 'Leave Management', Icon: CalendarDays,    roles: ['admin','hr','team_lead','employee'] },
+  { path: '/leave',        label: 'Leave Management', Icon: CalendarDays,    roles: ['admin','hr','team_lead'] },
   { path: '/performance',  label: 'Performance',      Icon: TrendingUp,      roles: ['admin','hr','team_lead','employee'] },
   { path: '/training',     label: 'Training & Dev',   Icon: GraduationCap,   roles: ['admin','hr','team_lead'] },
   { path: '/payroll',      label: 'Payroll',          Icon: Banknote,        roles: ['admin','hr'] },
