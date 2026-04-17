@@ -13,10 +13,11 @@ import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS } from '../../utils/constants'
 import type { FirebaseEmployee } from '../../hooks/useFirebaseEmployees'
 import { exportSingleEmployee } from '../../utils/exportExcel'
 import AddEditEmployeeModal from './components/AddEditEmployeeModal'
+import TimesheetTab from './components/TimesheetTab'
 import { cn } from '../../utils/cn'
 
 // ── Tab config ────────────────────────────────────────────────────────
-const PRIMARY_TABS = ['Personal','Job','Time Off','Pay Info','Documents','Performance','Benefits','Training','Assets'] as const
+const PRIMARY_TABS = ['Personal','Job','Time Off','Pay Info','Documents','Performance','Timesheet','Benefits','Training','Assets'] as const
 const MORE_TABS    = ['Emergency','Notes'] as const
 type Tab = typeof PRIMARY_TABS[number] | typeof MORE_TABS[number]
 
@@ -696,6 +697,9 @@ export default function EmployeeProfile() {
               </div>
             </div>
           )}
+
+          {/* ── Timesheet ── */}
+          {tab === 'Timesheet' && <TimesheetTab emp={emp} />}
 
           {/* ── Benefits ── */}
           {tab === 'Benefits' && (
