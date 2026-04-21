@@ -125,15 +125,20 @@ function EntryModal({
   const [project,   setProject] = useState(entry?.projectTask ?? '')
   const [note,      setNote]    = useState(entry?.note        ?? '')
   const [saving,    setSaving]  = useState(false)
+  const [error,     setError]   = useState('')
 
   const hours    = calcHours(startTime, endTime)
   const dayLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 
   const save = async () => {
+    setError('')
+    if (!date || !employeeId) { setError('Missing date or employee.'); return }
     setSaving(true)
     try {
       await onSave({ employeeId, date, startTime, endTime, hours, type: type as TimeEntry['type'], projectTask: project, note, clockedIn: false })
       onClose()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to save. Check your connection.')
     } finally { setSaving(false) }
   }
 
@@ -193,6 +198,9 @@ function EntryModal({
           </div>
         </div>
 
+        {error && (
+          <p className="mx-5 mb-3 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>
+        )}
         <div className="px-5 pb-5 flex items-center justify-between">
           {entry && onDelete
             ? <button onClick={async () => { await onDelete(); onClose() }} className="text-xs text-red-400 hover:text-red-600 transition font-medium">Delete Time Entry</button>
@@ -266,16 +274,17 @@ function ClockInModal({ onClockIn, onClose }: {
 
 // ── Mini bar chart ─────────────────────────────────────────────────────
 function WeekBar({ days, entries }: { days: Date[]; entries: TimeEntry[] }) {
-  const MAX = 9
+  const MAX        = 9
+  const BAR_MAX_PX = 40
   return (
-    <div className="flex items-end gap-1 h-9 pt-1">
+    <div className="flex items-end gap-1" style={{ height: 52 }}>
       {days.slice(0, 7).map((d, i) => {
-        const h   = entries.filter(e => e.date === toYMD(d)).reduce((s, e) => s + e.hours, 0)
-        const pct = Math.min(100, (h / MAX) * 100)
+        const h      = entries.filter(e => e.date === toYMD(d)).reduce((s, e) => s + e.hours, 0)
+        const barPx  = Math.max(2, Math.round((Math.min(h, MAX) / MAX) * BAR_MAX_PX))
         return (
-          <div key={i} className="flex flex-col items-center gap-0.5 flex-1">
+          <div key={i} className="flex flex-col items-center justify-end gap-0.5 flex-1 h-full">
             <div className="w-full rounded-sm"
-              style={{ height: `${Math.max(2, pct * 0.26)}rem`, backgroundColor: h > 0 ? '#2E86C1' : '#E5E7EB' }} />
+              style={{ height: barPx, backgroundColor: h > 0 ? '#2E86C1' : '#E5E7EB' }} />
             <span className="text-[8px] text-gray-400">{DAY_LABELS[i][0]}</span>
           </div>
         )

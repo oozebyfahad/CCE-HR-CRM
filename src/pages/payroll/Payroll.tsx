@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Download, Link2, CheckCircle2 } from 'lucide-react'
 import { Avatar } from '../../components/common/Avatar'
+import { CurrencySelector } from '../../components/common/CurrencySelector'
+import { useCurrency } from '../../context/CurrencyContext'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
 import { useAllTimesheets, weekMonday, toYMD, fmtHours } from '../../hooks/useFirebaseTimesheets'
 import { cn } from '../../utils/cn'
@@ -27,6 +29,7 @@ function getBiweeklyPeriods() {
 
 export default function Payroll() {
   const navigate   = useNavigate()
+  const { fmt }    = useCurrency()
   const { employees } = useFirebaseEmployees()
   const [periodIdx,  setPeriodIdx]  = useState(0)
   const [activeTab,  setActiveTab]  = useState<'summary' | 'hours'>('hours')
@@ -68,7 +71,8 @@ export default function Payroll() {
           <h2 className="page-header">Payroll</h2>
           <p className="page-sub">Timesheet hours and salary overview</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <CurrencySelector />
           <button className="btn-outline text-sm gap-2"><Link2 size={14} /> Sync</button>
           <button className="btn-outline text-sm gap-2"><Download size={14} /> Export</button>
         </div>
@@ -190,9 +194,9 @@ export default function Payroll() {
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: 'Monthly Payroll', value: `£${Math.round(monthlyPayroll).toLocaleString()}`,      color: '#2E86C1' },
-              { label: 'Annual Payroll',  value: `£${Math.round(monthlyPayroll * 12).toLocaleString()}`, color: '#10B981' },
-              { label: 'Avg Salary',      value: activeSalaries.length > 0 ? `£${Math.round(activeSalaries.reduce((s,e)=>s+(e.salary!),0)/activeSalaries.length).toLocaleString()}` : '—', color: '#F59E0B' },
+              { label: 'Monthly Payroll', value: fmt(monthlyPayroll),                                                                                                               color: '#2E86C1' },
+              { label: 'Annual Payroll',  value: fmt(monthlyPayroll * 12),                                                                                                          color: '#10B981' },
+              { label: 'Avg Salary',      value: activeSalaries.length > 0 ? fmt(activeSalaries.reduce((s,e)=>s+(e.salary!),0)/activeSalaries.length) : '—',                       color: '#F59E0B' },
               { label: 'On Payroll',      value: employees.filter(e => e.status === 'active').length,    color: '#8B5CF6' },
             ].map(s => (
               <div key={s.label} className="card p-4 text-center">
@@ -227,8 +231,8 @@ export default function Payroll() {
                       </td>
                       <td className="px-5 py-3 text-xs text-gray-500">{e.department}</td>
                       <td className="px-5 py-3 text-xs text-gray-600">{e.jobTitle}</td>
-                      <td className="px-5 py-3 text-sm font-semibold text-secondary">£{e.salary!.toLocaleString()}</td>
-                      <td className="px-5 py-3 text-xs text-gray-500">£{Math.round(e.salary! / 12).toLocaleString()}</td>
+                      <td className="px-5 py-3 text-sm font-semibold text-secondary">{fmt(e.salary!)}</td>
+                      <td className="px-5 py-3 text-xs text-gray-500">{fmt(e.salary! / 12)}</td>
                     </tr>
                   ))}
                 </tbody>

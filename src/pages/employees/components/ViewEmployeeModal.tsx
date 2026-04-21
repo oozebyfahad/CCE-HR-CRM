@@ -1,6 +1,7 @@
 import { X, Download, MapPin, Briefcase, CreditCard, AlertCircle, User } from 'lucide-react'
 import { Avatar } from '../../../components/common/Avatar'
 import { Badge, statusVariant } from '../../../components/common/Badge'
+import { useCurrency } from '../../../context/CurrencyContext'
 import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS } from '../../../utils/constants'
 import type { FirebaseEmployee } from '../../../hooks/useFirebaseEmployees'
 import { exportSingleEmployee } from '../../../utils/exportExcel'
@@ -36,6 +37,7 @@ function Section({ icon: Icon, title, children }: { icon: React.ElementType; tit
 }
 
 export default function ViewEmployeeModal({ employee: e, onClose, onEdit }: Props) {
+  const { fmt } = useCurrency()
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
@@ -89,7 +91,7 @@ export default function ViewEmployeeModal({ employee: e, onClose, onEdit }: Prop
               <Row label="Date of Joining" value={e.startDate} />
               <Row label="Work Location"   value={e.workLocation} />
               <Row label="Manager"         value={e.manager} />
-              <Row label="Salary"          value={e.salary ? `£${e.salary.toLocaleString()}` : undefined} />
+              <Row label="Salary"          value={e.salary ? fmt(e.salary) : undefined} />
             </Section>
 
             <Section icon={MapPin} title="Additional">

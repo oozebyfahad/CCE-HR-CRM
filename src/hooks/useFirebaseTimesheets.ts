@@ -38,7 +38,9 @@ export interface TimesheetApproval {
 export function calcHours(start: string, end: string): number {
   const [sh, sm] = start.split(':').map(Number)
   const [eh, em] = end.split(':').map(Number)
-  return Math.max(0, (eh * 60 + em - sh * 60 - sm) / 60)
+  let mins = eh * 60 + em - sh * 60 - sm
+  if (mins < 0) mins += 24 * 60  // overnight shift (e.g. 22:00 → 06:00)
+  return mins / 60
 }
 
 export function fmtHours(h: number): string {

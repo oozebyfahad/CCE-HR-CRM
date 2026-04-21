@@ -72,11 +72,11 @@ export const mockReviews: PerformanceReview[] = [
 
 // ── Vacancies ─────────────────────────────────────────────────────────
 export const mockVacancies: JobVacancy[] = [
-  { id:'1', title:'Dispatcher',          department:'Dispatch',        type:'full_time', salary:'£24,000–£26,000', postedDate:'2026-03-20', closingDate:'2026-04-20', applications:18, stage:'open' },
-  { id:'2', title:'Customer Service Agent', department:'Customer Service',type:'full_time', salary:'£22,000–£24,000', postedDate:'2026-03-28', closingDate:'2026-04-28', applications:31, stage:'open' },
-  { id:'3', title:'Night Operations Lead',  department:'Operations',   type:'full_time', salary:'£30,000–£34,000', postedDate:'2026-04-01', closingDate:'2026-05-01', applications:9,  stage:'open' },
-  { id:'4', title:'HR Assistant',           department:'Admin',        type:'part_time', salary:'£13,000–£15,000', postedDate:'2026-04-05', closingDate:'2026-05-05', applications:22, stage:'open' },
-  { id:'5', title:'Senior Dispatcher',      department:'Dispatch',     type:'full_time', salary:'£27,000–£30,000', postedDate:'2026-02-01', closingDate:'2026-03-01', applications:14, stage:'closed' },
+  { id:'1', title:'Dispatcher',          department:'Dispatch',        type:'full_time', salary:'Rs 60,000–Rs 70,000',  postedDate:'2026-03-20', closingDate:'2026-04-20', applications:18, stage:'open' },
+  { id:'2', title:'Customer Service Agent', department:'Customer Service',type:'full_time', salary:'Rs 50,000–Rs 60,000',  postedDate:'2026-03-28', closingDate:'2026-04-28', applications:31, stage:'open' },
+  { id:'3', title:'Night Operations Lead',  department:'Operations',   type:'full_time', salary:'Rs 80,000–Rs 100,000', postedDate:'2026-04-01', closingDate:'2026-05-01', applications:9,  stage:'open' },
+  { id:'4', title:'HR Assistant',           department:'Admin',        type:'part_time', salary:'Rs 30,000–Rs 40,000',  postedDate:'2026-04-05', closingDate:'2026-05-05', applications:22, stage:'open' },
+  { id:'5', title:'Senior Dispatcher',      department:'Dispatch',     type:'full_time', salary:'Rs 70,000–Rs 90,000',  postedDate:'2026-02-01', closingDate:'2026-03-01', applications:14, stage:'closed' },
 ]
 
 export const mockApplicants: Applicant[] = [

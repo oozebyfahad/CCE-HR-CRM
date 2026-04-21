@@ -9,6 +9,8 @@ import {
   Target, MessageSquare, ClipboardList, Info, Search,
 } from 'lucide-react'
 import { Badge, statusVariant } from '../../components/common/Badge'
+import { CurrencySelector } from '../../components/common/CurrencySelector'
+import { useCurrency } from '../../context/CurrencyContext'
 import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS } from '../../utils/constants'
 import type { FirebaseEmployee } from '../../hooks/useFirebaseEmployees'
 import { exportSingleEmployee } from '../../utils/exportExcel'
@@ -135,6 +137,7 @@ function MoreMenu({ tab, onSelect }: { tab: Tab; onSelect: (t: Tab) => void }) {
 export default function EmployeeProfile() {
   const { id }    = useParams<{ id: string }>()
   const navigate  = useNavigate()
+  const { fmt: fmtCurrency } = useCurrency()
   const [emp,     setEmp]     = useState<FirebaseEmployee | null>(null)
   const [loading, setLoading] = useState(true)
   const [tab,     setTab]     = useState<Tab>('Personal')
@@ -314,18 +317,28 @@ export default function EmployeeProfile() {
             <>
               <SectionCard title="Contact Information">
                 <InfoTable rows={[
-                  ['Email Address',     emp.email],
-                  ['Phone Number',      emp.phone],
-                  ['Date of Birth',     emp.dob ? fmt(emp.dob) : undefined],
-                  ['Gender',            emp.gender],
-                  ['CNIC / National ID',emp.cnic],
-                  ['Marital Status',    emp.maritalStatus],
+                  ['Email Address',          emp.email],
+                  ['Phone Number',           emp.phone],
+                  ['Date of Birth',          emp.dob ? fmt(emp.dob) : undefined],
+                  ['Gender',                 emp.gender],
+                  ['CNIC / National ID',     emp.cnic],
+                  ['Marital Status',         emp.maritalStatus],
+                  ['Religion',               emp.religion],
+                  ['Pseudonym / Alias',      emp.pseudonym],
+                ]} />
+              </SectionCard>
+              <SectionCard title="Family Information">
+                <InfoTable rows={[
+                  ['Father / Husband Name',  emp.fatherHusbandName],
+                  ['Mother Name',            emp.motherName],
                 ]} />
               </SectionCard>
               <SectionCard title="Address">
                 <InfoTable rows={[
-                  ['Current Address',   emp.currentAddress],
-                  ['Permanent Address', emp.permanentAddress],
+                  ['Current City',           emp.currentCity],
+                  ['Hometown',               emp.hometown],
+                  ['Current Address',        emp.currentAddress],
+                  ['Permanent Address',      emp.permanentAddress],
                 ]} />
               </SectionCard>
             </>
@@ -372,7 +385,7 @@ export default function EmployeeProfile() {
                     cols={['Effective Date','Annual Salary','Type']}
                     rows={[[
                       fmtShort(emp.startDate),
-                      <span className="font-bold text-secondary text-sm">£{emp.salary.toLocaleString()}</span>,
+                      <span className="font-bold text-secondary text-sm">{fmtCurrency(emp.salary)}</span>,
                       EMPLOYMENT_TYPE_LABELS[emp.employmentType] ?? emp.employmentType,
                     ]]}
                   />
@@ -423,16 +436,25 @@ export default function EmployeeProfile() {
             <>
               {emp.salary && (
                 <div className="card p-6">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Annual Salary</p>
-                  <p className="text-4xl font-bold text-secondary">£{emp.salary.toLocaleString()}</p>
+                  <div className="flex items-start justify-between mb-1">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Annual Salary</p>
+                    <CurrencySelector />
+                  </div>
+                  <p className="text-4xl font-bold text-secondary mt-2">{fmtCurrency(emp.salary)}</p>
                   <p className="text-xs text-gray-400 mt-1">{EMPLOYMENT_TYPE_LABELS[emp.employmentType] ?? emp.employmentType}</p>
                 </div>
               )}
               <SectionCard title="Banking Details">
                 <InfoTable rows={[
-                  ['Bank Name',        emp.bankName],
-                  ['Account / IBAN',   emp.accountNumber],
-                  ['Tax Number (NTN)', emp.taxNumber],
+                  ['Bank Name',                    emp.bankName],
+                  ['Account / IBAN',               emp.accountNumber],
+                  ['Tax Number (NTN)',              emp.taxNumber],
+                ]} />
+              </SectionCard>
+              <SectionCard title="Documents">
+                <InfoTable rows={[
+                  ['Character Certificate',        emp.characterCertificate],
+                  ['Certificate Expiry',           emp.characterCertificateExpiry ? fmt(emp.characterCertificateExpiry) : undefined],
                 ]} />
               </SectionCard>
             </>
@@ -748,17 +770,26 @@ export default function EmployeeProfile() {
 
           {/* ── Emergency (More) ── */}
           {tab === 'Emergency' && (
-            <SectionCard title="Emergency Contact">
-              {emp.emergencyContactName ? (
+            <>
+              <SectionCard title="Emergency Contact">
+                {emp.emergencyContactName ? (
+                  <InfoTable rows={[
+                    ['Contact Name',   emp.emergencyContactName],
+                    ['Phone Number',   emp.emergencyContactPhone],
+                    ['Relationship',   emp.emergencyContactRelation],
+                    ['Type of Contact',emp.emergencyContactType],
+                  ]} />
+                ) : (
+                  <Empty icon={Heart} label="No emergency contact on record." />
+                )}
+              </SectionCard>
+              <SectionCard title="Employment Details">
                 <InfoTable rows={[
-                  ['Contact Name',  emp.emergencyContactName],
-                  ['Phone Number',  emp.emergencyContactPhone],
-                  ['Relationship',  emp.emergencyContactRelation],
+                  ['Company Name',   emp.companyName],
+                  ['Referred By',    emp.referredBy],
                 ]} />
-              ) : (
-                <Empty icon={Heart} label="No emergency contact on record." />
-              )}
-            </SectionCard>
+              </SectionCard>
+            </>
           )}
 
           {/* ── Notes (More) ── */}

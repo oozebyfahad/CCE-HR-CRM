@@ -12,11 +12,16 @@ const STATUSES     = [{ v: 'active', l: 'Active' }, { v: 'on_leave', l: 'On Leav
 const GENDERS      = ['Male', 'Female', 'Other', 'Prefer not to say']
 const MARITAL      = ['Single', 'Married', 'Divorced', 'Widowed']
 
+const RELIGIONS = ['Islam', 'Christianity', 'Hinduism', 'Other']
+
 const EMPTY: Omit<FirebaseEmployee, 'id'> = {
   name: '', email: '', phone: '', dob: '', gender: '', cnic: '', maritalStatus: '', currentAddress: '',
-  employeeId: '', jobTitle: '', department: '', employmentType: 'full_time', status: 'active', startDate: '', workLocation: '', manager: '', salary: undefined,
-  permanentAddress: '', emergencyContactName: '', emergencyContactPhone: '', emergencyContactRelation: '',
-  bankName: '', accountNumber: '', taxNumber: '',
+  pseudonym: '', religion: '', fatherHusbandName: '', motherName: '',
+  employeeId: '', jobTitle: '', department: '', employmentType: 'full_time', status: 'active', startDate: '',
+  workLocation: '', manager: '', salary: undefined, companyName: '', referredBy: '',
+  currentCity: '', hometown: '',
+  permanentAddress: '', emergencyContactName: '', emergencyContactPhone: '', emergencyContactRelation: '', emergencyContactType: '',
+  bankName: '', accountNumber: '', taxNumber: '', characterCertificate: '', characterCertificateExpiry: '',
   skills: '', notes: '', linkedinUrl: '',
 }
 
@@ -120,8 +125,8 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
         </div>
 
         {/* Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-          <div className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
 
             {/* ── Basic Info ── */}
             {tab === 'Basic Info' && (
@@ -160,6 +165,25 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                       <option value="">Select…</option>
                       {MARITAL.map(m => <option key={m}>{m}</option>)}
                     </select>
+                  </Field>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Field label="Pseudonym / Alias">
+                    <input className={inp} value={form.pseudonym ?? ''} onChange={e => set('pseudonym', e.target.value)} placeholder="Nickname or alias" />
+                  </Field>
+                  <Field label="Religion">
+                    <select className={inp} value={form.religion ?? ''} onChange={e => set('religion', e.target.value)}>
+                      <option value="">Select…</option>
+                      {RELIGIONS.map(r => <option key={r}>{r}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Field label="Father / Husband Name">
+                    <input className={inp} value={form.fatherHusbandName ?? ''} onChange={e => set('fatherHusbandName', e.target.value)} placeholder="Father or husband's name" />
+                  </Field>
+                  <Field label="Mother Name">
+                    <input className={inp} value={form.motherName ?? ''} onChange={e => set('motherName', e.target.value)} placeholder="Mother's name" />
                   </Field>
                 </div>
                 <Field label="Current Address">
@@ -221,8 +245,16 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                   <Field label="Reporting Manager">
                     <input className={inp} value={form.manager} onChange={e => set('manager', e.target.value)} placeholder="Manager name" />
                   </Field>
-                  <Field label="Salary (£)">
+                  <Field label="Salary (PKR)">
                     <input className={inp} type="number" value={form.salary ?? ''} onChange={e => set('salary', Number(e.target.value))} placeholder="28000" />
+                  </Field>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Field label="Company Name">
+                    <input className={inp} value={form.companyName ?? ''} onChange={e => set('companyName', e.target.value)} placeholder="CCE Pvt Ltd" />
+                  </Field>
+                  <Field label="Referred By">
+                    <input className={inp} value={form.referredBy ?? ''} onChange={e => set('referredBy', e.target.value)} placeholder="Who referred this employee" />
                   </Field>
                 </div>
               </>
@@ -231,21 +263,34 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
             {/* ── Additional ── */}
             {tab === 'Additional' && (
               <>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Field label="Current City">
+                    <input className={inp} value={form.currentCity ?? ''} onChange={e => set('currentCity', e.target.value)} placeholder="e.g. Lahore" />
+                  </Field>
+                  <Field label="Hometown">
+                    <input className={inp} value={form.hometown ?? ''} onChange={e => set('hometown', e.target.value)} placeholder="e.g. Faisalabad" />
+                  </Field>
+                </div>
                 <Field label="Permanent Address">
                   <textarea className={cn(inp, 'resize-none')} rows={2} value={form.permanentAddress} onChange={e => set('permanentAddress', e.target.value)} placeholder="Permanent address if different" />
                 </Field>
                 <div className="pt-2 pb-1">
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Emergency Contact</p>
                 </div>
-                <div className="grid sm:grid-cols-3 gap-4">
+                <div className="grid sm:grid-cols-2 gap-4">
                   <Field label="Contact Name">
                     <input className={inp} value={form.emergencyContactName} onChange={e => set('emergencyContactName', e.target.value)} placeholder="Full name" />
                   </Field>
                   <Field label="Contact Number">
                     <input className={inp} value={form.emergencyContactPhone} onChange={e => set('emergencyContactPhone', e.target.value)} placeholder="+92 300 0000000" />
                   </Field>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
                   <Field label="Relationship">
                     <input className={inp} value={form.emergencyContactRelation} onChange={e => set('emergencyContactRelation', e.target.value)} placeholder="e.g. Spouse, Parent" />
+                  </Field>
+                  <Field label="Type of Contact">
+                    <input className={inp} value={form.emergencyContactType ?? ''} onChange={e => set('emergencyContactType', e.target.value)} placeholder="e.g. Family, Friend" />
                   </Field>
                 </div>
               </>
@@ -265,6 +310,14 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                 <Field label="Tax Number (NTN)">
                   <input className={cn(inp, 'sm:w-1/2')} value={form.taxNumber} onChange={e => set('taxNumber', e.target.value)} placeholder="1234567-8" />
                 </Field>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Field label="Character Certificate">
+                    <input className={inp} value={form.characterCertificate ?? ''} onChange={e => set('characterCertificate', e.target.value)} placeholder="Yes / No / Pending" />
+                  </Field>
+                  <Field label="Character Certificate Expiry">
+                    <input className={inp} type="date" value={form.characterCertificateExpiry ?? ''} onChange={e => set('characterCertificateExpiry', e.target.value)} />
+                  </Field>
+                </div>
                 <div className="border-t border-gray-100 pt-4 space-y-4">
                   <Field label="Skills">
                     <input className={inp} value={form.skills} onChange={e => set('skills', e.target.value)} placeholder="Dispatch, Call Handling, Customer Service..." />

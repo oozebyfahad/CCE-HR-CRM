@@ -16,6 +16,8 @@ export interface FirebaseEmployee {
   cnic?: string
   maritalStatus?: string
   currentAddress?: string
+  pseudonym?: string
+  religion?: string
   // Employment
   employeeId: string
   jobTitle: string
@@ -26,15 +28,25 @@ export interface FirebaseEmployee {
   workLocation?: string
   manager?: string
   salary?: number
-  // Additional
+  companyName?: string
+  // Personal
+  hometown?: string
+  currentCity?: string
   permanentAddress?: string
+  fatherHusbandName?: string
+  motherName?: string
+  referredBy?: string
+  // Emergency contact
   emergencyContactName?: string
   emergencyContactPhone?: string
   emergencyContactRelation?: string
-  // Financial
+  emergencyContactType?: string
+  // Financial / Documents
   bankName?: string
   accountNumber?: string
   taxNumber?: string
+  characterCertificate?: string
+  characterCertificateExpiry?: string
   // Optional
   skills?: string
   notes?: string
@@ -59,16 +71,18 @@ export function useFirebaseEmployees() {
   }, [])
 
   const addEmployee = async (data: Omit<FirebaseEmployee, 'id'>) => {
+    const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined && v !== null))
     await addDoc(collection(db, 'employees'), {
-      ...data,
+      ...clean,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     })
   }
 
   const updateEmployee = async (id: string, data: Partial<FirebaseEmployee>) => {
+    const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined && v !== null))
     await updateDoc(doc(db, 'employees', id), {
-      ...data,
+      ...clean,
       updatedAt: serverTimestamp(),
     })
   }

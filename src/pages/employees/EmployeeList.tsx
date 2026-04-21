@@ -1,14 +1,21 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Plus, Download, MoreHorizontal, Eye, Pencil, Trash2, Users, Filter, DatabaseZap, ArrowUpDown, Check } from 'lucide-react'
+import { Search, Plus, Download, MoreHorizontal, Eye, Pencil, Trash2, Users, Filter, DatabaseZap, ArrowUpDown, Check, FileUp } from 'lucide-react'
 import { useAppSelector } from '../../store'
-import { format } from 'date-fns'
+import { format, isValid } from 'date-fns'
+
+function safeFormatDate(d?: string): string {
+  if (!d) return '—'
+  const parsed = new Date(d)
+  return isValid(parsed) ? format(parsed, 'MMM yyyy') : '—'
+}
 import { Avatar } from '../../components/common/Avatar'
 import { Badge, statusVariant } from '../../components/common/Badge'
 import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS, DEPARTMENT_COLORS } from '../../utils/constants'
 import { useFirebaseEmployees, type FirebaseEmployee } from '../../hooks/useFirebaseEmployees'
-import AddEditEmployeeModal from './components/AddEditEmployeeModal'
-import DeleteConfirmModal   from './components/DeleteConfirmModal'
+import AddEditEmployeeModal    from './components/AddEditEmployeeModal'
+import DeleteConfirmModal      from './components/DeleteConfirmModal'
+import ImportEmployeeModal     from './components/ImportEmployeeModal'
 import { cn } from '../../utils/cn'
 import { seedEmployees } from '../../utils/seedEmployees'
 import { exportAllEmployees } from '../../utils/exportExcel'
@@ -44,7 +51,7 @@ function ActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEdit:
         <MoreHorizontal size={15} />
       </button>
       {open && (
-        <div className="absolute right-0 top-8 z-20 bg-white border border-gray-100 rounded-xl shadow-xl py-1 min-w-[150px]">
+        <div className="absolute right-0 bottom-full mb-1 z-20 bg-white border border-gray-100 rounded-xl shadow-xl py-1 min-w-[150px]">
           {[
             { label: 'View Details', icon: Eye,    action: onView,   color: '' },
             { label: 'Edit',         icon: Pencil, action: onEdit,   color: '' },
@@ -141,10 +148,19 @@ export default function EmployeeList() {
   const [editEmp,   setEditEmp]   = useState<FirebaseEmployee | null>(null)
   const [deleteEmp, setDeleteEmp] = useState<FirebaseEmployee | null>(null)
 
+  const [importOpen, setImportOpen] = useState(false)
   const [toast,    setToast]    = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [seeding,  setSeeding]  = useState(false)
 
   const notify = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
+
+  const handleImportEmployees = async (employees: Omit<FirebaseEmployee, 'id'>[]) => {
+    for (const emp of employees) {
+      await addEmployee(emp)
+    }
+    notify(`${employees.length} employee${employees.length !== 1 ? 's' : ''} imported successfully`)
+    setImportOpen(false)
+  }
 
   const handleSeed = async () => {
     setSeeding(true)
@@ -223,6 +239,9 @@ export default function EmployeeList() {
               disabled={filtered.length === 0}
               className="btn-outline text-sm gap-2 disabled:opacity-40">
               <Download size={14} /> Export
+            </button>
+            <button onClick={() => setImportOpen(true)} className="btn-outline text-sm gap-2">
+              <FileUp size={14} /> Import Excel
             </button>
             <button onClick={() => setAddOpen(true)} className="btn-primary text-sm gap-2">
               <Plus size={14} /> Add Employee
@@ -350,7 +369,7 @@ export default function EmployeeList() {
             {/* Joined */}
             <div className="w-24 shrink-0 hidden xl:block">
               <span className="text-xs text-gray-400">
-                {emp.startDate ? format(new Date(emp.startDate), 'MMM yyyy') : '—'}
+                {safeFormatDate(emp.startDate)}
               </span>
             </div>
 
@@ -390,6 +409,9 @@ export default function EmployeeList() {
       </div>
 
       {/* ── Modals ── */}
+      {importOpen && (
+        <ImportEmployeeModal onImport={handleImportEmployees} onClose={() => setImportOpen(false)} />
+      )}
       {addOpen && (
         <AddEditEmployeeModal onSave={handleAdd} onClose={() => setAddOpen(false)} />
       )}

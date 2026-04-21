@@ -7,6 +7,7 @@ import { AppRouter } from './router'
 import { useAppDispatch } from './store'
 import { loginSuccess, logout } from './store/slices/authSlice'
 import type { UserRole } from './types'
+import { CurrencyProvider } from './context/CurrencyContext'
 
 function AuthSync() {
   const dispatch = useAppDispatch()
@@ -38,9 +39,11 @@ function AuthSync() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthSync />
-      <AppRouter />
-    </BrowserRouter>
+    <CurrencyProvider>
+      <BrowserRouter>
+        <AuthSync />
+        <AppRouter />
+      </BrowserRouter>
+    </CurrencyProvider>
   )
 }
