@@ -3,31 +3,44 @@ import cceLogo from '../../assets/CCE-Logo.png'
 import {
   LayoutDashboard, Users, Clock, CalendarDays, TrendingUp,
   GraduationCap, Banknote, UserPlus, AlertTriangle, BarChart3,
-  Settings, LogOut, ChevronLeft, ChevronRight, Timer,
-  HandCoins, CalendarClock, ShieldCheck,
+  Settings, LogOut, ChevronLeft, ChevronRight,
+  HandCoins, CalendarClock, ShieldCheck, CreditCard, FileText, User,
+  FolderOpen, Megaphone, ShieldAlert, ScrollText, DollarSign,
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { logout } from '../../store/slices/authSlice'
 import { toggleSidebar } from '../../store/slices/uiSlice'
 import { cn } from '../../utils/cn'
 import type { UserRole } from '../../types'
+import NotificationBell from '../common/NotificationBell'
 
 const NAV: { path: string; label: string; Icon: React.ElementType; roles: UserRole[] }[] = [
-  { path: '/dashboard',    label: 'Dashboard',       Icon: LayoutDashboard, roles: ['admin','hr','team_lead','employee'] },
-  { path: '/my-time',      label: 'My Time',          Icon: Timer,           roles: ['employee','team_lead'] },
-  { path: '/employees',    label: 'Employees',        Icon: Users,           roles: ['admin','hr','team_lead'] },
-  { path: '/attendance',   label: 'Attendance',       Icon: Clock,           roles: ['admin','hr'] },
-  { path: '/leave',        label: 'Leave Management', Icon: CalendarDays,    roles: ['admin','hr','team_lead'] },
-  { path: '/shifts',       label: 'Shift Management', Icon: CalendarClock,   roles: ['admin','hr','team_lead'] },
-  { path: '/performance',  label: 'Performance',      Icon: TrendingUp,      roles: ['admin','hr','team_lead','employee'] },
-  { path: '/training',     label: 'Training & Dev',   Icon: GraduationCap,   roles: ['admin','hr','team_lead'] },
-  { path: '/payroll',      label: 'Payroll',          Icon: Banknote,        roles: ['admin','hr'] },
-  { path: '/advances',     label: 'Advances & Loans', Icon: HandCoins,       roles: ['admin','hr'] },
-  { path: '/compliance',   label: 'Compliance',       Icon: ShieldCheck,     roles: ['admin','hr'] },
-  { path: '/recruitment',  label: 'Recruitment',      Icon: UserPlus,        roles: ['admin','hr'] },
-  { path: '/disciplinary', label: 'Disciplinary',     Icon: AlertTriangle,   roles: ['admin','hr'] },
-  { path: '/reports',      label: 'Reports',          Icon: BarChart3,       roles: ['admin','hr'] },
-  { path: '/settings',     label: 'Settings',         Icon: Settings,        roles: ['admin'] },
+  { path: '/dashboard',     label: 'Dashboard',        Icon: LayoutDashboard, roles: ['admin','hr','team_lead','employee'] },
+  { path: '/my-time',       label: 'My Shifts',         Icon: CalendarClock,   roles: ['employee','team_lead'] },
+  { path: '/my-leave',      label: 'My Leave',          Icon: CalendarDays,    roles: ['employee'] },
+  { path: '/my-attendance', label: 'My Attendance',     Icon: Clock,           roles: ['employee'] },
+  { path: '/my-payslips',   label: 'My Payslips',       Icon: CreditCard,      roles: ['employee'] },
+  { path: '/my-advance',    label: 'My Advance',        Icon: DollarSign,      roles: ['employee'] },
+  { path: '/my-documents',  label: 'My Documents',      Icon: FolderOpen,      roles: ['employee'] },
+  { path: '/my-training',   label: 'My Training',       Icon: GraduationCap,   roles: ['employee'] },
+  { path: '/request-letter',label: 'Request Letter',    Icon: ScrollText,      roles: ['employee'] },
+  { path: '/grievance',     label: 'Grievance',         Icon: ShieldAlert,     roles: ['employee'] },
+  { path: '/noticeboard',   label: 'Noticeboard',       Icon: Megaphone,       roles: ['employee'] },
+  { path: '/my-requests',   label: 'My Requests',       Icon: FileText,        roles: ['employee'] },
+  { path: '/my-profile',    label: 'My Profile',        Icon: User,            roles: ['employee'] },
+  { path: '/employees',     label: 'Employees',         Icon: Users,           roles: ['admin','hr','team_lead'] },
+  { path: '/attendance',    label: 'Attendance',        Icon: Clock,           roles: ['admin','hr'] },
+  { path: '/leave',         label: 'Leave Management',  Icon: CalendarDays,    roles: ['admin','hr','team_lead'] },
+  { path: '/shifts',        label: 'Shift Management',  Icon: CalendarClock,   roles: ['admin','hr','team_lead'] },
+  { path: '/performance',   label: 'Performance',       Icon: TrendingUp,      roles: ['admin','hr','team_lead','employee'] },
+  { path: '/training',      label: 'Training & Dev',    Icon: GraduationCap,   roles: ['admin','hr','team_lead'] },
+  { path: '/payroll',       label: 'Payroll',           Icon: Banknote,        roles: ['admin','hr'] },
+  { path: '/advances',      label: 'Advances & Loans',  Icon: HandCoins,       roles: ['admin','hr'] },
+  { path: '/compliance',    label: 'Compliance',        Icon: ShieldCheck,     roles: ['admin','hr'] },
+  { path: '/recruitment',   label: 'Recruitment',       Icon: UserPlus,        roles: ['admin','hr'] },
+  { path: '/disciplinary',  label: 'Disciplinary',      Icon: AlertTriangle,   roles: ['admin','hr'] },
+  { path: '/reports',       label: 'Reports',           Icon: BarChart3,       roles: ['admin','hr'] },
+  { path: '/settings',      label: 'Settings',          Icon: Settings,        roles: ['admin'] },
 ]
 
 export default function Sidebar() {
@@ -90,10 +103,16 @@ export default function Sidebar() {
             <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0">
               <span className="text-white text-xs font-bold">{initials}</span>
             </div>
-            <div className="overflow-hidden">
+            <div className="flex-1 overflow-hidden">
               <p className="text-white text-xs font-semibold truncate">{user?.name ?? 'HR Manager'}</p>
               <p className="text-gray-400 text-[10px] truncate capitalize">{user?.role?.replace('_', ' ') ?? 'Administrator'}</p>
             </div>
+            <NotificationBell />
+          </div>
+        )}
+        {collapsed && (
+          <div className="flex justify-center py-1">
+            <NotificationBell />
           </div>
         )}
         <button

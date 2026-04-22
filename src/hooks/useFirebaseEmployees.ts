@@ -62,6 +62,9 @@ export interface FirebaseEmployee {
   skills?: string
   notes?: string
   linkedinUrl?: string
+  // Profile photo (stored as resized base64 data URL)
+  photoUrl?: string
+  photoApproved?: boolean
 }
 
 export function useFirebaseEmployees() {
