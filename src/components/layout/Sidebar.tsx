@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Users, Clock, CalendarDays, TrendingUp,
   GraduationCap, Banknote, UserPlus, AlertTriangle, BarChart3,
   Settings, LogOut, ChevronLeft, ChevronRight, Timer,
+  HandCoins, CalendarClock, ShieldCheck,
 } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { logout } from '../../store/slices/authSlice'
@@ -17,9 +18,12 @@ const NAV: { path: string; label: string; Icon: React.ElementType; roles: UserRo
   { path: '/employees',    label: 'Employees',        Icon: Users,           roles: ['admin','hr','team_lead'] },
   { path: '/attendance',   label: 'Attendance',       Icon: Clock,           roles: ['admin','hr'] },
   { path: '/leave',        label: 'Leave Management', Icon: CalendarDays,    roles: ['admin','hr','team_lead'] },
+  { path: '/shifts',       label: 'Shift Management', Icon: CalendarClock,   roles: ['admin','hr','team_lead'] },
   { path: '/performance',  label: 'Performance',      Icon: TrendingUp,      roles: ['admin','hr','team_lead','employee'] },
   { path: '/training',     label: 'Training & Dev',   Icon: GraduationCap,   roles: ['admin','hr','team_lead'] },
   { path: '/payroll',      label: 'Payroll',          Icon: Banknote,        roles: ['admin','hr'] },
+  { path: '/advances',     label: 'Advances & Loans', Icon: HandCoins,       roles: ['admin','hr'] },
+  { path: '/compliance',   label: 'Compliance',       Icon: ShieldCheck,     roles: ['admin','hr'] },
   { path: '/recruitment',  label: 'Recruitment',      Icon: UserPlus,        roles: ['admin','hr'] },
   { path: '/disciplinary', label: 'Disciplinary',     Icon: AlertTriangle,   roles: ['admin','hr'] },
   { path: '/reports',      label: 'Reports',          Icon: BarChart3,       roles: ['admin','hr'] },

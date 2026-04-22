@@ -3,10 +3,11 @@ import { X, ChevronRight } from 'lucide-react'
 import { cn } from '../../../utils/cn'
 import type { FirebaseEmployee } from '../../../hooks/useFirebaseEmployees'
 
-const TABS = ['Basic Info', 'Employment', 'Additional', 'Financial'] as const
+const TABS = ['Basic Info', 'Employment', 'Additional', 'Financial', 'Payroll'] as const
 type Tab = typeof TABS[number]
 
-const DEPARTMENTS  = ['Operations', 'Customer Service', 'Dispatch', 'Admin', 'Management', 'IT']
+const DEPARTMENTS  = ['Operations', 'Customer Service', 'Dispatch', 'Admin', 'Management', 'IT', 'HR', 'Finance', 'Marketing', 'QA']
+const PROJECTS     = ['TakeMe', 'TC Cars', 'A1 Ace Taxis', 'Value Cars', 'Tower Cabs', 'Intercity', 'ADT', 'VGT', '1AB', 'Bounds', 'Birmingham', 'Other']
 const EMP_TYPES    = [{ v: 'full_time', l: 'Full-Time' }, { v: 'part_time', l: 'Part-Time' }, { v: 'contract', l: 'Contract' }, { v: 'agency', l: 'Agency' }]
 const STATUSES     = [{ v: 'active', l: 'Active' }, { v: 'on_leave', l: 'On Leave' }, { v: 'suspended', l: 'Suspended' }, { v: 'resigned', l: 'Resigned' }, { v: 'terminated', l: 'Terminated' }]
 const GENDERS      = ['Male', 'Female', 'Other', 'Prefer not to say']
@@ -17,12 +18,14 @@ const RELIGIONS = ['Islam', 'Christianity', 'Hinduism', 'Other']
 const EMPTY: Omit<FirebaseEmployee, 'id'> = {
   name: '', email: '', phone: '', dob: '', gender: '', cnic: '', maritalStatus: '', currentAddress: '',
   pseudonym: '', religion: '', fatherHusbandName: '', motherName: '',
-  employeeId: '', jobTitle: '', department: '', employmentType: 'full_time', status: 'active', startDate: '',
+  employeeId: '', jobTitle: '', department: '', project: '', employmentType: 'full_time', status: 'active', startDate: '',
   workLocation: '', manager: '', salary: undefined, companyName: '', referredBy: '',
   currentCity: '', hometown: '',
   permanentAddress: '', emergencyContactName: '', emergencyContactPhone: '', emergencyContactRelation: '', emergencyContactType: '',
   bankName: '', accountNumber: '', taxNumber: '', characterCertificate: '', characterCertificateExpiry: '',
   skills: '', notes: '', linkedinUrl: '',
+  payType: 'fixed_monthly', hourlyRate: undefined, monthlyHours: 160, overtimeRate: undefined, eobi: false,
+  fuelAllowance: undefined, gymAllowance: undefined, securityDeduction: undefined,
 }
 
 interface Props {
@@ -63,26 +66,29 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
   const set = (field: keyof typeof EMPTY, value: string | number) =>
     setForm(prev => ({ ...prev, [field]: value }))
 
+  const [saveError, setSaveError] = useState('')
+
   const validate = () => {
     const e: Record<string, string> = {}
-    if (!form.name.trim())        e.name        = 'Required'
-    if (!form.email.trim())       e.email       = 'Required'
-    if (!form.phone.trim())       e.phone       = 'Required'
-    if (!form.employeeId.trim())  e.employeeId  = 'Required'
-    if (!form.jobTitle.trim())    e.jobTitle    = 'Required'
-    if (!form.department)         e.department  = 'Required'
-    if (!form.startDate)          e.startDate   = 'Required'
+    if (!form.name.trim())       e.name       = 'Required'
+    if (!form.employeeId.trim()) e.employeeId = 'Required'
+    if (!form.jobTitle.trim())   e.jobTitle   = 'Required'
+    if (!form.department)        e.department = 'Required'
+    if (!form.startDate)         e.startDate  = 'Required'
     setErrors(e)
     return Object.keys(e).length === 0
   }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    setSaveError('')
     if (!validate()) { setTab('Basic Info'); return }
     setSaving(true)
     try {
       await onSave(form)
       onClose()
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -221,9 +227,22 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                     </select>
                     {err('department')}
                   </Field>
+                  <Field label="Project / Client Company">
+                    <select className={inp} value={form.project ?? ''} onChange={e => set('project', e.target.value)}>
+                      <option value="">Select…</option>
+                      {PROJECTS.map(p => <option key={p}>{p}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
                   <Field label="Employment Type" required>
                     <select className={inp} value={form.employmentType} onChange={e => set('employmentType', e.target.value)}>
                       {EMP_TYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Status">
+                    <select className={inp} value={form.status} onChange={e => set('status', e.target.value)}>
+                      {STATUSES.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
                     </select>
                   </Field>
                 </div>
@@ -232,21 +251,16 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                     <input className={inp} type="date" value={form.startDate} onChange={e => set('startDate', e.target.value)} />
                     {err('startDate')}
                   </Field>
-                  <Field label="Status">
-                    <select className={inp} value={form.status} onChange={e => set('status', e.target.value)}>
-                      {STATUSES.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
-                    </select>
+                  <Field label="Salary (PKR)">
+                    <input className={inp} type="number" value={form.salary ?? ''} onChange={e => set('salary', Number(e.target.value))} placeholder="28000" />
                   </Field>
                 </div>
-                <div className="grid sm:grid-cols-3 gap-4">
+                <div className="grid sm:grid-cols-2 gap-4">
                   <Field label="Work Location">
                     <input className={inp} value={form.workLocation} onChange={e => set('workLocation', e.target.value)} placeholder="Head Office" />
                   </Field>
                   <Field label="Reporting Manager">
                     <input className={inp} value={form.manager} onChange={e => set('manager', e.target.value)} placeholder="Manager name" />
-                  </Field>
-                  <Field label="Salary (PKR)">
-                    <input className={inp} type="number" value={form.salary ?? ''} onChange={e => set('salary', Number(e.target.value))} placeholder="28000" />
                   </Field>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
@@ -328,9 +342,108 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                 </div>
               </>
             )}
+
+            {/* ── Payroll ── */}
+            {tab === 'Payroll' && (
+              <>
+                <div className="p-3 mb-2 bg-blue-50 rounded-lg text-xs text-blue-700">
+                  Payroll settings control how this employee is paid each month. FBR withholding tax and EOBI are calculated automatically.
+                </div>
+
+                <Field label="Pay Type">
+                  <select className={inp} value={form.payType ?? 'fixed_monthly'}
+                    onChange={e => set('payType', e.target.value as 'hourly' | 'fixed_monthly')}>
+                    <option value="fixed_monthly">Fixed Monthly Salary</option>
+                    <option value="hourly">Hourly Rate</option>
+                  </select>
+                </Field>
+
+                {form.payType === 'hourly' ? (
+                  <Field label="Hourly Rate (PKR)">
+                    <input className={inp} type="number" min={0}
+                      value={form.hourlyRate ?? ''}
+                      onChange={e => set('hourlyRate', e.target.value ? Number(e.target.value) : '')}
+                      placeholder="e.g. 500" />
+                  </Field>
+                ) : (
+                  <>
+                    <Field label="Monthly Salary (PKR)">
+                      <input className={inp} type="number" min={0}
+                        value={form.salary ?? ''}
+                        onChange={e => set('salary', e.target.value ? Number(e.target.value) : '')}
+                        placeholder="e.g. 60000" />
+                    </Field>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Field label="Monthly Hours Threshold">
+                        <input className={inp} type="number" min={1}
+                          value={form.monthlyHours ?? 160}
+                          onChange={e => set('monthlyHours', Number(e.target.value))}
+                          placeholder="160" />
+                      </Field>
+                      <Field label="Overtime Rate (PKR / hr)">
+                        <input className={inp} type="number" min={0}
+                          value={form.overtimeRate ?? ''}
+                          onChange={e => set('overtimeRate', e.target.value ? Number(e.target.value) : '')}
+                          placeholder="e.g. 400" />
+                      </Field>
+                    </div>
+                  </>
+                )}
+
+                <div className="flex items-center gap-3 pt-1">
+                  <input
+                    id="eobi"
+                    type="checkbox"
+                    checked={!!form.eobi}
+                    onChange={e => setForm(prev => ({ ...prev, eobi: e.target.checked }))}
+                    className="w-4 h-4 rounded border-gray-300 accent-primary"
+                  />
+                  <label htmlFor="eobi" className="text-sm text-gray-700">
+                    Enrolled in EOBI
+                    <span className="text-gray-400 text-xs ml-1">(Employee: PKR 370 / Employer: PKR 1,850 per month)</span>
+                  </label>
+                </div>
+
+                <div className="border-t border-gray-100 pt-4 space-y-4">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Fixed Monthly Allowances</p>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <Field label="Fuel Allowance (PKR / month)">
+                      <input className={inp} type="number" min={0}
+                        value={form.fuelAllowance ?? ''}
+                        onChange={e => set('fuelAllowance', e.target.value ? Number(e.target.value) : '')}
+                        placeholder="e.g. 3000" />
+                    </Field>
+                    <Field label="Gym Allowance (PKR / month)">
+                      <input className={inp} type="number" min={0}
+                        value={form.gymAllowance ?? ''}
+                        onChange={e => set('gymAllowance', e.target.value ? Number(e.target.value) : '')}
+                        placeholder="e.g. 1500" />
+                    </Field>
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100 pt-4 space-y-4">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Fixed Monthly Deductions</p>
+                  <Field label="Security Deduction (PKR / month)">
+                    <input className={inp} type="number" min={0}
+                      value={form.securityDeduction ?? ''}
+                      onChange={e => set('securityDeduction', e.target.value ? Number(e.target.value) : '')}
+                      placeholder="e.g. 2000" />
+                  </Field>
+                  <p className="text-[11px] text-gray-400">Security amounts are held as a deposit and refunded when the employee leaves.</p>
+                </div>
+
+                <div className="p-3 bg-amber-50 rounded-lg text-xs text-amber-700">
+                  <strong>Quality bonus, Eid double pay, and paid holidays</strong> are set per payroll run — they vary month to month and are entered when creating a run.
+                </div>
+              </>
+            )}
           </div>
 
           {/* Footer */}
+          {saveError && (
+            <div className="mx-6 mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600 shrink-0">{saveError}</div>
+          )}
           <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between shrink-0 bg-gray-50/50">
             <div className="flex gap-2">
               {TABS.indexOf(tab) > 0 && (

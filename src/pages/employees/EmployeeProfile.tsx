@@ -268,6 +268,7 @@ export default function EmployeeProfile() {
             {([
               ['Type',       EMPLOYMENT_TYPE_LABELS[emp.employmentType] ?? emp.employmentType],
               ['Department', emp.department],
+              emp.project     ? ['Project',  emp.project]     : null,
               emp.workLocation ? ['Location', emp.workLocation] : null,
             ] as ([string,string] | null)[]).filter((x): x is [string,string] => x !== null).map(([k, v]) => (
               <div key={k}>
@@ -363,11 +364,12 @@ export default function EmployeeProfile() {
               </SectionCard>
               <SectionCard title="Job Information">
                 <DataTable
-                  cols={['Effective Date','Location','Department','Job Title','Reports To']}
+                  cols={['Effective Date','Location','Department','Project / Client','Job Title','Reports To']}
                   rows={[[
                     fmtShort(emp.startDate),
                     emp.workLocation || '—',
                     emp.department,
+                    emp.project || '—',
                     <span className="font-semibold">{emp.jobTitle}</span>,
                     emp.manager ? <span className="text-primary font-medium">{emp.manager}</span> : '—',
                   ]]}
@@ -773,12 +775,26 @@ export default function EmployeeProfile() {
             <>
               <SectionCard title="Emergency Contact">
                 {emp.emergencyContactName ? (
-                  <InfoTable rows={[
-                    ['Contact Name',   emp.emergencyContactName],
-                    ['Phone Number',   emp.emergencyContactPhone],
-                    ['Relationship',   emp.emergencyContactRelation],
-                    ['Type of Contact',emp.emergencyContactType],
-                  ]} />
+                  <div className="p-5 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600 text-sm font-bold shrink-0">
+                        {emp.emergencyContactName.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-secondary">{emp.emergencyContactName}</p>
+                        {emp.emergencyContactPhone && (
+                          <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                            <Phone size={11} className="text-gray-400" />
+                            {emp.emergencyContactPhone}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <InfoTable rows={[
+                      ['Relationship',    emp.emergencyContactRelation],
+                      ['Type of Contact', emp.emergencyContactType],
+                    ]} />
+                  </div>
                 ) : (
                   <Empty icon={Heart} label="No emergency contact on record." />
                 )}

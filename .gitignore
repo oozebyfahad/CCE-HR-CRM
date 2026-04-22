@@ -1,1 +1,7 @@
 node_modules
+dist
+*.xlsx
+*.xls
+.env
+.env.local
+.env.*.local

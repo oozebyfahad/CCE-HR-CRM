@@ -25,6 +25,7 @@ function toRow(e: FirebaseEmployee) {
     'Company Name':                  e.companyName               ?? '',
     'Job Title':                     e.jobTitle,
     'Department':                    e.department,
+    'Project / Client':              e.project                   ?? '',
     'Employment Type':               EMPLOYMENT_TYPE_LABELS[e.employmentType] ?? e.employmentType,
     'Status':                        STATUS_LABELS[e.status] ?? e.status,
     'Date of Joining':               e.startDate,

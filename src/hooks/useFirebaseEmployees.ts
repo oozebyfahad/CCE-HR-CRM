@@ -22,6 +22,7 @@ export interface FirebaseEmployee {
   employeeId: string
   jobTitle: string
   department: string
+  project?: string        // client / taxi company they're assigned to
   employmentType: string
   status: string
   startDate: string
@@ -47,6 +48,16 @@ export interface FirebaseEmployee {
   taxNumber?: string
   characterCertificate?: string
   characterCertificateExpiry?: string
+  // Payroll
+  payType?: 'hourly' | 'fixed_monthly'
+  hourlyRate?: number
+  monthlyHours?: number        // overtime threshold for fixed_monthly (default 160)
+  overtimeRate?: number        // PKR/hr above threshold
+  eobi?: boolean               // enrolled in EOBI
+  // Fixed monthly allowances / deductions (applied every payroll run)
+  fuelAllowance?: number       // PKR/month
+  gymAllowance?: number        // PKR/month
+  securityDeduction?: number   // PKR/month held as security deposit
   // Optional
   skills?: string
   notes?: string

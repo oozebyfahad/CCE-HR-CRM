@@ -15,11 +15,19 @@ export type EmploymentType = 'full_time' | 'part_time' | 'contract' | 'agency'
 export type EmployeeStatus = 'active' | 'on_leave' | 'suspended' | 'resigned' | 'terminated'
 export type ContractType  = 'permanent' | 'fixed_term' | 'zero_hours'
 export type ProbationStatus = 'in_probation' | 'passed' | 'extended' | 'failed'
+export type BloodGroup = 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-' | 'O+' | 'O-'
 
 export interface EmergencyContact {
   name: string
   phone: string
   relationship: string
+}
+
+export interface KinContact {
+  name: string
+  relationship: string
+  contact: string
+  contactType: 'Mobile' | 'Landline'
 }
 
 export interface Employee {
@@ -30,6 +38,7 @@ export interface Employee {
   phone: string
   department: string
   jobTitle: string
+  project?: string
   employmentType: EmploymentType
   status: EmployeeStatus
   startDate: string
@@ -37,16 +46,91 @@ export interface Employee {
   manager: string
   avatar?: string
   dob?: string
+  gender?: 'Male' | 'Female' | 'Other'
+  maritalStatus?: 'Single' | 'Married' | 'Divorced' | 'Widowed'
+  religion?: string
+  bloodGroup?: BloodGroup
+  // Pakistan-specific
+  cnicNumber?: string
+  ntnNumber?: string
+  eobi?: string
+  bankAccountNo?: string
+  // Address
+  hometown?: string
+  currentCity?: string
+  temporaryAddress?: string
+  permanentAddress?: string
   address?: string
-  niNumber?: string
+  // Compliance
+  characterCertExpiry?: string
+  referredBy?: string
+  motherName?: string
+  // Kin
+  kin?: KinContact[]
   emergencyContact?: EmergencyContact
+  // Employment
   probationStatus?: ProbationStatus
   probationEndDate?: string
   contractType?: ContractType
   contractEndDate?: string
+  niNumber?: string
   licenceNumber?: string
   pcoLicence?: string
   vehicleAssigned?: string
+}
+
+// ── Shift Management ──────────────────────────────────────────────────
+export type ShiftName = 'Morning' | 'Afternoon' | 'Evening' | 'Night' | 'Rotating'
+
+export interface Shift {
+  id: string
+  name: ShiftName | string
+  startTime: string
+  endTime: string
+  project: string
+  days: string[]
+  color?: string
+}
+
+export interface ShiftAssignment {
+  id: string
+  employeeId: string
+  employeeName: string
+  jobTitle: string
+  shiftId: string
+  shiftName: string
+  project: string
+  startDate: string
+  endDate?: string
+  isActive: boolean
+}
+
+// ── Compliance Documents ──────────────────────────────────────────────
+export type ComplianceDocType =
+  | 'character_certificate'
+  | 'police_verification'
+  | 'cnic'
+  | 'ntn'
+  | 'eobi'
+  | 'education'
+  | 'experience_letter'
+  | 'medical'
+  | 'offer_letter'
+  | 'contract'
+
+export type ComplianceStatus = 'valid' | 'expiring_soon' | 'expired' | 'missing'
+
+export interface ComplianceDocument {
+  id: string
+  employeeId: string
+  employeeName: string
+  department: string
+  type: ComplianceDocType
+  issueDate?: string
+  expiryDate?: string
+  status: ComplianceStatus
+  documentUrl?: string
+  notes?: string
 }
 
 // ── Attendance ────────────────────────────────────────────────────────

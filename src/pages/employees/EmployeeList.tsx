@@ -127,7 +127,7 @@ const statusDot: Record<string, string> = {
   resigned: '#9ca3af', terminated: '#ef4444',
 }
 
-const DEPARTMENTS  = ['All', 'Operations', 'Customer Service', 'Dispatch', 'Admin', 'Management', 'IT']
+const DEPARTMENTS  = ['All', 'Operations', 'Customer Service', 'Dispatch', 'Admin', 'Management', 'IT', 'HR', 'Finance', 'Marketing', 'QA']
 const EMP_TYPES    = ['All', ...Object.keys(EMPLOYMENT_TYPE_LABELS)]
 const STATUS_OPTS  = ['All', ...Object.keys(STATUS_LABELS)]
 
@@ -140,6 +140,7 @@ export default function EmployeeList() {
 
   const [search,    setSearch]    = useState('')
   const [dept,      setDept]      = useState('All')
+  const [project,   setProject]   = useState('All')
   const [empType,   setEmpType]   = useState('All')
   const [statusF,   setStatusF]   = useState('All')
   const [sort,      setSort]      = useState<SortKey>('default')
@@ -181,11 +182,12 @@ export default function EmployeeList() {
       // Team leads only see their own team members
       if (isTeamLead && e.manager !== currentUser?.name) return false
       const q = search.toLowerCase()
-      const matchSearch = !q || e.name.toLowerCase().includes(q) || e.employeeId.toLowerCase().includes(q) || e.email.toLowerCase().includes(q) || e.jobTitle?.toLowerCase().includes(q)
-      const matchDept   = dept === 'All'    || e.department    === dept
-      const matchType   = empType === 'All' || e.employmentType === empType
-      const matchStatus = statusF === 'All' || e.status         === statusF
-      return matchSearch && matchDept && matchType && matchStatus
+      const matchSearch  = !q || e.name.toLowerCase().includes(q) || e.employeeId.toLowerCase().includes(q) || e.email.toLowerCase().includes(q) || e.jobTitle?.toLowerCase().includes(q)
+      const matchDept    = dept    === 'All' || e.department    === dept
+      const matchProject = project === 'All' || (e.project ?? '') === project
+      const matchType    = empType === 'All' || e.employmentType === empType
+      const matchStatus  = statusF === 'All' || e.status         === statusF
+      return matchSearch && matchDept && matchProject && matchType && matchStatus
     })
     .sort((a, b) => {
       if (sort === 'name_az')   return a.name.localeCompare(b.name)
@@ -262,6 +264,10 @@ export default function EmployeeList() {
           <div className="flex items-center gap-2 flex-wrap">
             <Filter size={13} className="text-gray-400" />
             <select value={dept}     onChange={e => setDept(e.target.value)}     className="input w-auto text-sm">{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
+            <select value={project}  onChange={e => setProject(e.target.value)}  className="input w-auto text-sm">
+              <option value="All">All Projects</option>
+              {[...new Set(employees.map(e => e.project).filter(Boolean))].sort().map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
             <select value={empType}  onChange={e => setEmpType(e.target.value)}  className="input w-auto text-sm">{EMP_TYPES.map(t => <option key={t} value={t}>{t === 'All' ? 'All Types' : EMPLOYMENT_TYPE_LABELS[t]}</option>)}</select>
             <select value={statusF}  onChange={e => setStatusF(e.target.value)}  className="input w-auto text-sm">{STATUS_OPTS.map(s => <option key={s} value={s}>{s === 'All' ? 'All Statuses' : STATUS_LABELS[s]}</option>)}</select>
             <SortMenu value={sort} onChange={setSort} />

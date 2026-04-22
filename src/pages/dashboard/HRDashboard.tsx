@@ -1,21 +1,18 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  LineChart, Line, AreaChart, Area,
-  PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
+  LineChart, Line, CartesianGrid, XAxis, YAxis,
   Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { Star, Clock, CalendarDays, Briefcase, Users, X, CheckCircle2 } from 'lucide-react'
+import { Star, Clock, CalendarDays, Briefcase, Users, X, CheckCircle2, Calendar, Check, Award } from 'lucide-react'
 import { Avatar } from '../../components/common/Avatar'
-import { LEAVE_TYPE_LABELS, EMPLOYMENT_TYPE_LABELS } from '../../utils/constants'
+import { LEAVE_TYPE_LABELS } from '../../utils/constants'
 import { useAppSelector } from '../../store'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
 import { useFirebaseTimesheets, fmt12, toYMD } from '../../hooks/useFirebaseTimesheets'
 import { useFirebaseLeave } from '../../hooks/useFirebaseLeave'
 import { collection, addDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore'
 import { db } from '../../config/firebase'
-
-const CHART_COLORS = ['#2E86C1','#10B981','#8B5CF6','#F59E0B','#EF4444','#EC4899','#F97316']
 
 // ── Team Lead mock data ───────────────────────────────────────────────
 const TEAM_MEMBERS = [
@@ -62,6 +59,53 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`w-2 h-2 rounded-full shrink-0 ${colors[status] ?? 'bg-gray-300'}`} />
 }
 
+// ── Admin dashboard helpers ───────────────────────────────────────────
+
+function Donut({
+  pct, size = 70, stroke = 7, color = '#10B981', track = 'rgba(255,255,255,0.1)',
+  children,
+}: {
+  pct: number; size?: number; stroke?: number; color?: string; track?: string;
+  children?: React.ReactNode
+}) {
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const off = c - Math.max(0, Math.min(100, pct)) / 100 * c
+  return (
+    <div className="relative" style={{ width: size, height: size }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={track} strokeWidth={stroke} />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+          strokeDasharray={c} strokeDashoffset={off} strokeLinecap="round" />
+      </svg>
+      {children && (
+        <div className="absolute inset-0 flex items-center justify-center">{children}</div>
+      )}
+    </div>
+  )
+}
+
+function InitialAvatar({ name, hue = 210, size = 32 }: { name: string; hue?: number; size?: number }) {
+  const initials = name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+  return (
+    <div
+      className="flex items-center justify-center font-semibold shrink-0"
+      style={{
+        width: size, height: size, borderRadius: size,
+        background: `oklch(0.86 0.08 ${hue})`,
+        color: `oklch(0.32 0.08 ${hue})`,
+        fontSize: size * 0.38,
+      }}
+    >{initials}</div>
+  )
+}
+
+const hueFor = (name: string) => {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360
+  return h
+}
+
 // ── Admin / HR dashboard ──────────────────────────────────────────────
 function AdminDashboard() {
   const navigate    = useNavigate()
@@ -72,24 +116,25 @@ function AdminDashboard() {
   const today    = new Date()
   const todayStr = toYMD(today)
 
-  // ── Lightweight one-time attendance fetch (avoids extra onSnapshot listeners) ──
   const [clockedInCount, setClockedInCount] = useState(0)
   const [hrMarkedToday,  setHrMarkedToday]  = useState<{ status: string }[]>([])
+
   useEffect(() => {
-    getDocs(query(collection(db, 'time_entries'),     where('date', '==', todayStr), where('clockedIn', '==', true)))
+    getDocs(query(collection(db, 'time_entries'), where('date', '==', todayStr), where('clockedIn', '==', true)))
       .then(s => setClockedInCount(s.size))
     getDocs(query(collection(db, 'attendance_records'), where('date', '==', todayStr)))
       .then(s => setHrMarkedToday(s.docs.map(d => d.data() as { status: string })))
   }, [todayStr])
 
-  // ── KPI computations from real data ─────────────────────────────────
+  // ── Derived metrics ──────────────────────────────────────────────────
   const activeEmps     = employees.filter(e => e.status === 'active')
   const thisMonthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`
   const newJoiners     = employees.filter(e => e.startDate >= thisMonthStart).length
   const onLeaveToday   = leaveRequests.filter(r =>
     r.status === 'approved' && r.startDate <= todayStr && r.endDate >= todayStr
   ).length
-  const pendingApprovals = leaveRequests.filter(r => r.status === 'pending').length
+  const pendingList    = leaveRequests.filter(r => r.status === 'pending')
+  const pendingApprovals = pendingList.length
   const probationDue   = activeEmps.filter(e => {
     if (!e.startDate) return false
     const probEnd = new Date(e.startDate)
@@ -98,261 +143,298 @@ function AdminDashboard() {
     return diff >= 0 && diff <= 30
   }).length
 
-  // ── Charts from real data ────────────────────────────────────────────
+  const hrLate       = hrMarkedToday.filter(r => r.status === 'late').length
+  const hrAbsent     = hrMarkedToday.filter(r => r.status === 'absent').length
+  const presentToday = clockedInCount
+  const activeTotal  = activeEmps.length || 1
+  const presentPct   = Math.round((presentToday / activeTotal) * 100)
+
+  // Department breakdown
+  const CHART_COLORS = ['#2E86C1','#10B981','#8B5CF6','#F59E0B','#EC4899','#F97316']
   const deptMap = new Map<string, number>()
   activeEmps.forEach(e => { if (e.department) deptMap.set(e.department, (deptMap.get(e.department) ?? 0) + 1) })
-  const deptChartData = Array.from(deptMap.entries())
+  const departments = Array.from(deptMap.entries())
     .sort((a, b) => b[1] - a[1])
-    .map(([name, value], i) => ({ name, value, color: CHART_COLORS[i % CHART_COLORS.length] }))
+    .map(([name, count], i) => ({ name, count, color: CHART_COLORS[i % CHART_COLORS.length] }))
+  const totalDept = departments.reduce((s, d) => s + d.count, 0) || 1
 
-  const typeMap = new Map<string, number>()
-  activeEmps.forEach(e => {
-    const t = EMPLOYMENT_TYPE_LABELS[e.employmentType] ?? e.employmentType
-    typeMap.set(t, (typeMap.get(t) ?? 0) + 1)
-  })
-  const empTypeData = Array.from(typeMap.entries())
-    .map(([type, count], i) => ({ type, count, pct: count / (activeEmps.length || 1), color: CHART_COLORS[i] }))
-
-  const trendData = Array.from({ length: 12 }, (_, i) => {
-    const d       = new Date(today.getFullYear(), today.getMonth() - (11 - i), 1)
+  // Headcount trend (12 months)
+  const headcount = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(today.getFullYear(), today.getMonth() - (11 - i), 1)
     const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10)
     return {
-      month: d.toLocaleDateString('en-GB', { month: 'short' }),
-      count: employees.filter(e => e.startDate && e.startDate <= monthEnd).length,
+      m: d.toLocaleDateString('en-GB', { month: 'short' }),
+      c: employees.filter(e => e.startDate && e.startDate <= monthEnd).length,
     }
   })
+  const hcMax    = Math.max(...headcount.map(h => h.c), 1)
+  const hcMin    = Math.min(...headcount.map(h => h.c), 0)
+  const ytdDelta = headcount[headcount.length - 1].c - headcount[0].c
 
-  // ── Attendance strip — derived without extra listeners ───────────────
-  const hrAbsent  = hrMarkedToday.filter(r => r.status === 'absent').length
-  const hrLate    = hrMarkedToday.filter(r => r.status === 'late').length
-  const hrPresent = hrMarkedToday.filter(r => r.status === 'present' || r.status === 'half_day').length
-  const attendStrip = [
-    { label: 'Clocked In',  value: clockedInCount,                        color: '#10B981' },
-    { label: 'HR Present',  value: hrPresent,                             color: '#2E86C1' },
-    { label: 'Late',        value: hrLate,                                color: '#F59E0B' },
-    { label: 'Absent',      value: hrAbsent,                              color: '#EF4444' },
-    { label: 'On Leave',    value: onLeaveToday,                          color: '#8B5CF6' },
+  // MOCK — replace with real shift_plans collection when ready
+  const shifts = [
+    { label: 'Night',   start: '22:00', end: '06:00', staffed: 14, need: 16, color: '#6366F1' },
+    { label: 'Morning', start: '06:00', end: '14:00', staffed: 42, need: 40, color: '#10B981' },
+    { label: 'Day',     start: '10:00', end: '18:00', staffed: 38, need: 38, color: '#2E86C1' },
+    { label: 'Evening', start: '14:00', end: '22:00', staffed: 24, need: 28, color: '#F59E0B' },
   ]
-  const attendTotal = attendStrip.reduce((s, a) => s + a.value, 0)
 
-  // ── Leave requests ───────────────────────────────────────────────────
-  const pendingList = leaveRequests.filter(r => r.status === 'pending').slice(0, 4)
+  // MOCK — wire to real activity log later
+  const activity = [
+    { id: 'a1', kind: 'joined',   who: 'Jordan Reeves',  detail: 'started in Dispatch',              mins: 8   },
+    { id: 'a2', kind: 'leave',    who: 'Marcus Obi',     detail: 'requested 2 days sick leave',      mins: 14  },
+    { id: 'a3', kind: 'review',   who: 'Sarah Chen',     detail: 'completed Q1 performance review',  mins: 47  },
+    { id: 'a4', kind: 'clockin',  who: 'Night shift',    detail: '18 staff clocked in',              mins: 62  },
+    { id: 'a5', kind: 'training', who: 'James Mitchell', detail: 'completed De-escalation course',   mins: 95  },
+    { id: 'a6', kind: 'warning',  who: 'Aisha Hussain',  detail: 'marked late (3rd this month)',     mins: 120 },
+  ]
+
   const handleApprove = (id: string) => approveRequest(id, currentUser?.name ?? 'HR')
   const handleDecline = (id: string) => declineRequest(id, currentUser?.name ?? 'HR')
+  const firstName = (currentUser?.name ?? 'there').split(' ')[0]
 
-  const KPIs = [
-    { label: 'Active Staff',      value: activeEmps.length,  color: '#2E86C1', bg: '#2E86C115' },
-    { label: 'New Joiners',       value: newJoiners,          color: '#10B981', bg: '#10B98115' },
-    { label: 'On Leave Today',    value: onLeaveToday,        color: '#F59E0B', bg: '#F59E0B15' },
-    { label: 'Pending Approvals', value: pendingApprovals,    color: '#EF4444', bg: '#EF444415' },
-    { label: 'Probation Due',     value: probationDue,        color: '#8B5CF6', bg: '#8B5CF615' },
-  ]
+  const timeLabel = today.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  const dateLabel = today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase()
+
+  const num = 'tabular-nums'
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
 
-      {/* ── KPI strip ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        {KPIs.map(k => (
-          <div key={k.label} className="card p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-              style={{ backgroundColor: k.bg }}>
-              <span className="text-base font-bold" style={{ color: k.color }}>{k.value}</span>
+      {/* ── HERO ── */}
+      <div className="relative overflow-hidden rounded-2xl p-7 text-white bg-[#12121E]">
+        <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full pointer-events-none"
+          style={{ background: 'radial-gradient(circle at 30% 30%, rgba(46,134,193,0.5), transparent 60%)' }} />
+        <div className="absolute -bottom-16 right-24 w-44 h-44 rounded-full pointer-events-none"
+          style={{ background: 'radial-gradient(circle, rgba(244,114,182,0.3), transparent 60%)' }} />
+
+        <div className="relative flex justify-between items-start gap-6 flex-wrap">
+          <div>
+            <div className="text-[11px] opacity-60 tracking-wider font-medium">{dateLabel} · {timeLabel}</div>
+            <div className="text-3xl md:text-4xl font-bold tracking-tight leading-tight mt-3">
+              Morning, {firstName}.<br />
+              <span className="text-[#5DADE2]">{activeTotal} people on the clock today.</span>
             </div>
-            <div>
-              <p className="text-xl font-bold text-secondary leading-tight">{k.value}</p>
-              <p className="text-[10px] text-gray-400 leading-tight">{k.label}</p>
+            <div className="flex items-center gap-2 mt-3 flex-wrap text-sm">
+              <span className="inline-flex items-center gap-1.5 bg-green-500/15 text-green-300 px-2.5 py-0.5 rounded-full text-[11px] font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> LIVE
+              </span>
+              <span className="text-white/70">
+                {presentToday} clocked in · {hrLate} late · {hrAbsent} absent
+              </span>
             </div>
           </div>
-        ))}
-      </div>
 
-      {/* ── Charts row ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-
-        {/* Headcount trend */}
-        <div className="card p-5 lg:col-span-6">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <p className="text-sm font-semibold text-secondary">Headcount Trend</p>
-              <p className="text-xs text-gray-400">Rolling 12 months</p>
-            </div>
-            <button onClick={() => navigate('/reports')} className="text-xs text-primary hover:underline">View report →</button>
-          </div>
-          <ResponsiveContainer width="100%" height={160}>
-            <AreaChart data={trendData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
-              <defs>
-                <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#2E86C1" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#2E86C1" stopOpacity={0}    />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F0F4F8" />
-              <XAxis dataKey="month" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
-              <Area type="monotone" dataKey="count" stroke="#2E86C1" strokeWidth={2}
-                fill="url(#grad)" dot={{ r: 3, fill: '#2E86C1' }} activeDot={{ r: 5 }} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Department donut */}
-        <div className="card p-5 lg:col-span-3">
-          <p className="text-sm font-semibold text-secondary mb-1">By Department</p>
-          <p className="text-xs text-gray-400 mb-3">Active headcount</p>
-          {deptChartData.length === 0 ? (
-            <p className="text-xs text-gray-300 text-center py-8">No data yet</p>
-          ) : (
-            <div className="flex items-center gap-3">
-              <ResponsiveContainer width={90} height={90}>
-                <PieChart>
-                  <Pie data={deptChartData} innerRadius={26} outerRadius={44} dataKey="value" paddingAngle={2}>
-                    {deptChartData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                  </Pie>
-                  <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-1.5 flex-1 min-w-0">
-                {deptChartData.map(d => (
-                  <div key={d.name} className="flex items-center justify-between gap-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                      <span className="text-[10px] text-gray-500 truncate">{d.name}</span>
-                    </div>
-                    <span className="text-[10px] font-semibold text-secondary shrink-0">{d.value}</span>
+          <div className="flex gap-3">
+            {[
+              { l: 'Present',   v: presentPct,       sub: `${presentToday}/${activeTotal}`, c: '#10B981' },
+              { l: 'Approvals', v: pendingApprovals, sub: 'waiting',                        c: '#F05A3E', raw: true },
+              { l: 'Probation', v: probationDue,     sub: 'due 30d',                        c: '#F9A8D4', raw: true },
+            ].map(r => (
+              <div key={r.l} className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 text-center">
+                <Donut pct={r.raw ? 100 : r.v} size={66} stroke={6} color={r.c}>
+                  <div className={`text-lg font-bold ${num}`}>
+                    {r.v}{!r.raw && <span className="text-[10px] opacity-60">%</span>}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Employment types */}
-        <div className="card p-5 lg:col-span-3">
-          <p className="text-sm font-semibold text-secondary mb-1">Employment Types</p>
-          <p className="text-xs text-gray-400 mb-4">Current workforce</p>
-          {empTypeData.length === 0 ? (
-            <p className="text-xs text-gray-300 text-center py-8">No data yet</p>
-          ) : (
-            <div className="space-y-3">
-              {empTypeData.map(e => (
-                <div key={e.type}>
-                  <div className="flex justify-between mb-1">
-                    <span className="text-xs text-gray-500">{e.type}</span>
-                    <span className="text-xs font-semibold text-secondary">{e.count}</span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all" style={{ width: `${e.pct * 100}%`, backgroundColor: e.color }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Bottom row ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-
-        {/* Today's attendance */}
-        <div className="card p-5 lg:col-span-4">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <p className="text-sm font-semibold text-secondary">Today's Attendance</p>
-              <p className="text-xs text-gray-400">Live overview</p>
-            </div>
-            <button onClick={() => navigate('/attendance')} className="text-xs text-primary hover:underline">Details →</button>
-          </div>
-          <div className="grid grid-cols-5 gap-1.5 mb-3">
-            {attendStrip.map(a => (
-              <div key={a.label} className="rounded-xl p-2 text-center" style={{ backgroundColor: `${a.color}12` }}>
-                <p className="text-lg font-bold" style={{ color: a.color }}>{a.value}</p>
-                <p className="text-[9px] text-gray-500 mt-0.5 leading-tight">{a.label}</p>
+                </Donut>
+                <div className="text-[11px] mt-2 font-semibold">{r.l}</div>
+                <div className={`text-[10px] opacity-50 ${num}`}>{r.sub}</div>
               </div>
             ))}
           </div>
-          {attendTotal > 0 && (
-            <div className="flex h-1.5 rounded-full overflow-hidden mb-3">
-              {attendStrip.map(a => (
-                <div key={a.label} style={{ width: `${(a.value / attendTotal) * 100}%`, backgroundColor: a.color }} />
-              ))}
-            </div>
-          )}
-          {hrLate > 0 && (
-            <p className="text-xs text-amber-600 font-medium pt-2 border-t border-gray-50">
-              {hrLate} employee{hrLate !== 1 ? 's' : ''} marked late today
-            </p>
-          )}
         </div>
 
-        {/* Leave requests — real + functional */}
-        <div className="card p-5 lg:col-span-5">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <p className="text-sm font-semibold text-secondary">Leave Requests</p>
-              <p className="text-xs text-gray-400">Pending approval</p>
-            </div>
-            <div className="flex items-center gap-2">
-              {pendingApprovals > 0 && (
-                <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{pendingApprovals}</span>
-              )}
-              <button onClick={() => navigate('/leave')} className="text-xs text-primary hover:underline">All →</button>
-            </div>
-          </div>
-          {pendingList.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-6">No pending requests — all caught up.</p>
-          ) : (
-            <div className="space-y-2.5">
-              {pendingList.map(lr => (
-                <div key={lr.id} className="flex items-center justify-between gap-2 py-1.5 border-b border-gray-50 last:border-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Avatar name={lr.employeeName ?? '?'} size="xs" />
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-secondary truncate">{lr.employeeName}</p>
-                      <p className="text-[10px] text-gray-400">{lr.days}d · {LEAVE_TYPE_LABELS[lr.type] ?? lr.type}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => handleApprove(lr.id)}
-                      className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 hover:bg-green-200 font-medium transition-colors">✓ Approve</button>
-                    <button onClick={() => handleDecline(lr.id)}
-                      className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 hover:bg-red-200 font-medium transition-colors">✗</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Quick actions */}
-        <div className="card p-5 lg:col-span-3 flex flex-col gap-2">
-          <p className="text-sm font-semibold text-secondary mb-1">Quick Actions</p>
+        <div className="relative mt-6 rounded-xl overflow-hidden grid grid-cols-4 gap-px bg-white/10">
           {[
-            { label: '+ Add Employee',  path: '/employees',   cls: 'btn-primary'  },
-            { label: '✓ Approve Leave', path: '/leave',       cls: 'btn-outline'  },
-            { label: '👥 Attendance',   path: '/attendance',  cls: 'btn-outline'  },
-            { label: '📊 Reports',      path: '/reports',     cls: 'btn-outline'  },
-          ].map(q => (
-            <button key={q.label} onClick={() => navigate(q.path)} className={`${q.cls} text-xs w-full`}>{q.label}</button>
+            { l: 'New this month',    v: newJoiners,       c: '#6EE7B7' },
+            { l: 'Approvals pending', v: pendingApprovals, c: '#FBBF24' },
+            { l: 'Probation due',     v: probationDue,     c: '#F9A8D4' },
+            { l: 'Leave today',       v: onLeaveToday,     c: '#93C5FD' },
+          ].map(s => (
+            <div key={s.l} className="bg-[#12121E] px-4 py-3.5">
+              <div className="text-[10px] opacity-60 uppercase tracking-wide font-medium">{s.l}</div>
+              <div className={`text-2xl font-bold mt-0.5 ${num}`} style={{ color: s.c }}>{s.v}</div>
+            </div>
           ))}
         </div>
       </div>
 
-      {/* ── Overdue reviews — bottom, notice style ── */}
-      <div className="card p-4 flex items-center gap-4 border-l-4 border-amber-300">
-        <div className="w-8 h-8 bg-amber-50 rounded-lg flex items-center justify-center shrink-0">
-          <Star size={14} className="text-amber-500" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-secondary">Performance Reviews</p>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Review cycles are not yet configured. Set up performance reviews to track overdue reviews here.
-          </p>
-        </div>
-        <button onClick={() => navigate('/performance')} className="btn-outline text-xs shrink-0">Set up →</button>
-      </div>
+      {/* ── Main grid ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
+        {/* LEFT: activity feed */}
+        <div className="lg:col-span-2 bg-white rounded-2xl p-5 flex flex-col gap-3">
+          <div className="flex justify-between items-center">
+            <div>
+              <div className="text-[11px] tracking-wide text-gray-400 uppercase font-semibold">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5" />
+                Live activity
+              </div>
+              <div className="text-base font-bold">What's happening</div>
+            </div>
+            <button onClick={() => navigate('/reports')} className="text-xs text-primary font-semibold hover:underline">
+              Full log →
+            </button>
+          </div>
+          <div className="flex flex-col">
+            {activity.map(a => {
+              const meta: Record<string, { c: string; bg: string; l: string }> = {
+                joined:   { c: '#10B981', bg: '#E7F9F1', l: 'Joined'   },
+                leave:    { c: '#8B5CF6', bg: '#F0ECFF', l: 'Leave'    },
+                review:   { c: '#2E86C1', bg: '#E5F0F8', l: 'Review'   },
+                clockin:  { c: '#10B981', bg: '#E7F9F1', l: 'Clock'    },
+                training: { c: '#F59E0B', bg: '#FEF8E7', l: 'Training' },
+                warning:  { c: '#EF4444', bg: '#FEF3F2', l: 'Warn'     },
+              }
+              const m = meta[a.kind] ?? meta.review
+              return (
+                <div key={a.id} className="py-2 flex items-center gap-3 border-b border-gray-50 last:border-0">
+                  <div className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide"
+                    style={{ background: m.bg, color: m.c }}>{m.l}</div>
+                  <div className="flex-1 text-[13px] text-secondary">
+                    <strong className="font-semibold">{a.who}</strong>{' '}
+                    <span className="text-gray-500">{a.detail}</span>
+                  </div>
+                  <div className={`text-[11px] text-gray-400 ${num}`}>{a.mins}m</div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* RIGHT: Action list */}
+        <div className="bg-white rounded-2xl p-5 flex flex-col gap-3">
+          <div className="flex justify-between items-center">
+            <div>
+              <div className="text-[11px] tracking-wide text-gray-400 uppercase font-semibold">Needs you</div>
+              <div className="text-base font-bold">Action list</div>
+            </div>
+            {(pendingApprovals + probationDue) > 0 && (
+              <span className={`bg-[#F05A3E] text-white text-[11px] font-bold px-2 py-0.5 rounded-full ${num}`}>
+                {pendingApprovals + probationDue}
+              </span>
+            )}
+          </div>
+
+          {pendingApprovals > 0 && (
+            <div className="bg-red-50 border border-red-100 rounded-xl p-3 flex gap-2.5 items-center">
+              <div className="w-9 h-9 rounded-lg bg-[#F05A3E] text-white flex items-center justify-center shrink-0">
+                <Calendar size={16} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-semibold">{pendingApprovals} leave request{pendingApprovals !== 1 ? 's' : ''}</div>
+                <div className="text-[11px] text-gray-500">Awaiting your review</div>
+              </div>
+              <button onClick={() => navigate('/leave')} className="text-[11px] text-[#F05A3E] font-semibold">Review →</button>
+            </div>
+          )}
+
+          {pendingList.slice(0, 3).map(lr => (
+            <div key={lr.id} className="bg-gray-50 rounded-xl p-2.5 flex items-center gap-2.5">
+              <InitialAvatar name={lr.employeeName ?? '?'} hue={hueFor(lr.employeeName ?? '')} size={32} />
+              <div className="flex-1 min-w-0">
+                <div className="text-[12.5px] font-semibold truncate">{lr.employeeName}</div>
+                <div className="text-[11px] text-gray-500">
+                  {LEAVE_TYPE_LABELS[lr.type] ?? lr.type} · {lr.days}d
+                </div>
+              </div>
+              <div className="flex gap-1">
+                <button onClick={() => handleApprove(lr.id)}
+                  className="w-7 h-7 rounded-lg bg-secondary text-white flex items-center justify-center hover:bg-black transition">
+                  <Check size={13} />
+                </button>
+                <button onClick={() => handleDecline(lr.id)}
+                  className="w-7 h-7 rounded-lg border border-gray-200 bg-white text-gray-500 flex items-center justify-center hover:bg-gray-50 transition">
+                  <X size={13} />
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {probationDue > 0 && (
+            <div className="bg-violet-50 border border-violet-100 rounded-xl p-3 flex gap-2.5 items-center">
+              <div className="w-9 h-9 rounded-lg bg-violet-500 text-white flex items-center justify-center shrink-0">
+                <Award size={16} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-semibold">{probationDue} probation review{probationDue !== 1 ? 's' : ''} due</div>
+                <div className="text-[11px] text-gray-500">Within 30 days</div>
+              </div>
+              <button onClick={() => navigate('/performance')} className="text-[11px] text-violet-600 font-semibold">Open →</button>
+            </div>
+          )}
+
+          {pendingApprovals === 0 && probationDue === 0 && (
+            <div className="text-center text-xs text-gray-400 py-6">All caught up — nothing on your desk.</div>
+          )}
+        </div>
+
+        {/* Headcount */}
+        <div className="bg-white rounded-2xl p-5 flex flex-col gap-3">
+          <div className="flex justify-between items-start">
+            <div>
+              <div className="text-[11px] tracking-wide text-gray-400 uppercase font-semibold">Headcount</div>
+              <div className={`text-xl font-bold mt-0.5 ${num}`}>
+                {activeTotal}{' '}
+                <span className={`text-[12px] font-semibold ${ytdDelta >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {ytdDelta >= 0 ? '+' : ''}{ytdDelta} YTD
+                </span>
+              </div>
+            </div>
+            <button onClick={() => navigate('/reports')} className="text-[11px] text-primary font-semibold hover:underline">Report →</button>
+          </div>
+          <div className="flex items-end gap-1 h-32">
+            {headcount.map((h, i) => {
+              const pct = (h.c - hcMin) / Math.max(1, hcMax - hcMin)
+              const hpx = 20 + pct * 90
+              const latest = i === headcount.length - 1
+              return (
+                <div key={h.m} className="flex-1 flex flex-col items-center gap-1">
+                  <div className="w-full rounded-md"
+                    style={{ height: hpx, background: latest ? '#2E86C1' : '#E7E4DE' }} />
+                  <div className={`text-[9px] text-gray-400 ${num}`}>{h.m}</div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+
+        {/* Shift coverage */}
+        <div className="bg-[#12121E] text-white rounded-2xl p-5 flex flex-col gap-3">
+          <div className="flex justify-between items-start">
+            <div>
+              <div className="text-[11px] tracking-wide opacity-60 uppercase font-semibold">Live shifts</div>
+              <div className="text-base font-bold mt-0.5">Shift coverage</div>
+            </div>
+            <div className="text-[11px] opacity-60">Today</div>
+          </div>
+          <div className="flex flex-col gap-2.5 flex-1 justify-center">
+            {shifts.map(s => {
+              const pct  = Math.min(100, (s.staffed / s.need) * 100)
+              const over = s.staffed >= s.need
+              return (
+                <div key={s.label}>
+                  <div className="flex justify-between text-[12px] mb-1">
+                    <div className="flex items-center gap-2">
+                      <strong className="font-semibold">{s.label}</strong>
+                      <span className={`opacity-50 text-[11px] ${num}`}>{s.start}–{s.end}</span>
+                    </div>
+                    <div className={`font-bold ${num}`}>
+                      <span style={{ color: over ? '#6EE7B7' : '#FCA5A5' }}>{s.staffed}</span>
+                      <span className="opacity-40">/{s.need}</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: s.color }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="text-[10px] opacity-40 italic">Placeholder data · wire to shift_plans when ready</div>
+        </div>
+      </div>
     </div>
   )
 }
