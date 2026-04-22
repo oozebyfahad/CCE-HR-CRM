@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  LineChart, Line, CartesianGrid, XAxis, YAxis,
+  LineChart, Line, AreaChart, Area, CartesianGrid, XAxis, YAxis,
   Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { Star, Clock, CalendarDays, Briefcase, Users, X, CheckCircle2, Calendar, Check, Award } from 'lucide-react'
+import {
+  Star, Clock, CalendarDays, Briefcase, Users, X, CheckCircle2,
+  Calendar, Check, Award, TrendingUp, TrendingDown, UserCheck,
+  UserMinus, Activity, ArrowUpRight, Zap, AlertTriangle, Gift, Trophy,
+} from 'lucide-react'
 import { Avatar } from '../../components/common/Avatar'
 import { LEAVE_TYPE_LABELS } from '../../utils/constants'
 import { useAppSelector } from '../../store'
@@ -115,324 +119,621 @@ function AdminDashboard() {
 
   const today    = new Date()
   const todayStr = toYMD(today)
+  const firstName = (currentUser?.name ?? 'there').split(' ')[0]
 
-  const [clockedInCount, setClockedInCount] = useState(0)
-  const [hrMarkedToday,  setHrMarkedToday]  = useState<{ status: string }[]>([])
+  type ShiftEmp = { name: string; jobTitle: string; dept: string; since: string }
+  const [shiftEmps,    setShiftEmps]    = useState<ShiftEmp[]>([])
+  const [hrMarkedToday, setHrMarkedToday] = useState<{ status: string }[]>([])
 
   useEffect(() => {
+    if (!employees.length) return
     getDocs(query(collection(db, 'time_entries'), where('date', '==', todayStr), where('clockedIn', '==', true)))
-      .then(s => setClockedInCount(s.size))
+      .then(snap => {
+        const items = snap.docs.map(d => {
+          const data = d.data()
+          const emp  = employees.find(e => e.id === data.employeeId)
+          return emp ? { name: emp.name, jobTitle: emp.jobTitle, dept: emp.department ?? '', since: data.startTime ?? '' } : null
+        }).filter((x): x is ShiftEmp => x !== null)
+        setShiftEmps(items)
+      })
     getDocs(query(collection(db, 'attendance_records'), where('date', '==', todayStr)))
       .then(s => setHrMarkedToday(s.docs.map(d => d.data() as { status: string })))
-  }, [todayStr])
+  }, [todayStr, employees.length])
 
-  // ── Derived metrics ──────────────────────────────────────────────────
+  // ── Derived ──────────────────────────────────────────────────────────
   const activeEmps     = employees.filter(e => e.status === 'active')
+  const activeTotal    = activeEmps.length
+  const departed       = employees.filter(e => e.status === 'terminated' || e.status === 'resigned').length
+  const totalEver      = employees.length || 1
+  const retentionRate  = Math.round((activeTotal / totalEver) * 100)
+
   const thisMonthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`
+  const prevMonthDate  = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+  const prevMonthStart = prevMonthDate.toISOString().slice(0, 10)
+  const prevMonthEnd   = new Date(today.getFullYear(), today.getMonth(), 0).toISOString().slice(0, 10)
   const newJoiners     = employees.filter(e => e.startDate >= thisMonthStart).length
+  const prevJoiners    = employees.filter(e => e.startDate >= prevMonthStart && e.startDate <= prevMonthEnd).length
+  const joinerDelta    = newJoiners - prevJoiners
+
   const onLeaveToday   = leaveRequests.filter(r =>
     r.status === 'approved' && r.startDate <= todayStr && r.endDate >= todayStr
   ).length
-  const pendingList    = leaveRequests.filter(r => r.status === 'pending')
+  const pendingList      = leaveRequests.filter(r => r.status === 'pending')
   const pendingApprovals = pendingList.length
-  const probationDue   = activeEmps.filter(e => {
-    if (!e.startDate) return false
-    const probEnd = new Date(e.startDate)
-    probEnd.setMonth(probEnd.getMonth() + 3)
-    const diff = Math.round((probEnd.getTime() - today.getTime()) / 86_400_000)
-    return diff >= 0 && diff <= 30
-  }).length
+  const recentLeave      = leaveRequests.filter(r => r.status === 'approved').slice(0, 3)
 
-  const hrLate       = hrMarkedToday.filter(r => r.status === 'late').length
-  const hrAbsent     = hrMarkedToday.filter(r => r.status === 'absent').length
-  const presentToday = clockedInCount
-  const activeTotal  = activeEmps.length || 1
-  const presentPct   = Math.round((presentToday / activeTotal) * 100)
+  const hrLate   = hrMarkedToday.filter(r => r.status === 'late').length
+  const hrAbsent = hrMarkedToday.filter(r => r.status === 'absent').length
+
+  // Headcount trend (12 months) for chart
+  const headcountTrend = Array.from({ length: 12 }, (_, i) => {
+    const d        = new Date(today.getFullYear(), today.getMonth() - (11 - i), 1)
+    const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10)
+    const label    = d.toLocaleDateString('en-GB', { month: 'short' })
+    return {
+      m: label,
+      active: employees.filter(e => e.startDate && e.startDate <= monthEnd && (e.status === 'active' || e.startDate <= monthEnd)).length,
+    }
+  })
+  const ytdDelta = headcountTrend[headcountTrend.length - 1].active - headcountTrend[0].active
 
   // Department breakdown
-  const CHART_COLORS = ['#2E86C1','#10B981','#8B5CF6','#F59E0B','#EC4899','#F97316']
+  const DEPT_COLORS = ['#2E86C1','#10B981','#8B5CF6','#F59E0B','#EC4899','#F97316','#06B6D4']
   const deptMap = new Map<string, number>()
   activeEmps.forEach(e => { if (e.department) deptMap.set(e.department, (deptMap.get(e.department) ?? 0) + 1) })
   const departments = Array.from(deptMap.entries())
     .sort((a, b) => b[1] - a[1])
-    .map(([name, count], i) => ({ name, count, color: CHART_COLORS[i % CHART_COLORS.length] }))
-  const totalDept = departments.reduce((s, d) => s + d.count, 0) || 1
+    .map(([name, count], i) => ({ name, count, color: DEPT_COLORS[i % DEPT_COLORS.length] }))
+  const totalDeptCount = departments.reduce((s, d) => s + d.count, 0) || 1
 
-  // Headcount trend (12 months)
-  const headcount = Array.from({ length: 12 }, (_, i) => {
-    const d = new Date(today.getFullYear(), today.getMonth() - (11 - i), 1)
-    const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10)
-    return {
-      m: d.toLocaleDateString('en-GB', { month: 'short' }),
-      c: employees.filter(e => e.startDate && e.startDate <= monthEnd).length,
-    }
-  })
-  const hcMax    = Math.max(...headcount.map(h => h.c), 1)
-  const hcMin    = Math.min(...headcount.map(h => h.c), 0)
-  const ytdDelta = headcount[headcount.length - 1].c - headcount[0].c
+  // ── People Alerts (next 14 days) ─────────────────────────────────────
+  const ALERT_WINDOW = 14
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
 
-  // MOCK — replace with real shift_plans collection when ready
-  const shifts = [
-    { label: 'Night',   start: '22:00', end: '06:00', staffed: 14, need: 16, color: '#6366F1' },
-    { label: 'Morning', start: '06:00', end: '14:00', staffed: 42, need: 40, color: '#10B981' },
-    { label: 'Day',     start: '10:00', end: '18:00', staffed: 38, need: 38, color: '#2E86C1' },
-    { label: 'Evening', start: '14:00', end: '22:00', staffed: 24, need: 28, color: '#F59E0B' },
-  ]
+  const certExpiring = activeEmps
+    .filter(e => e.characterCertificateExpiry)
+    .map(e => {
+      const expiry    = new Date(e.characterCertificateExpiry!)
+      const daysUntil = Math.round((expiry.getTime() - todayMidnight.getTime()) / 86400000)
+      return { emp: e, daysUntil }
+    })
+    .filter(x => x.daysUntil >= 0 && x.daysUntil <= ALERT_WINDOW)
+    .sort((a, b) => a.daysUntil - b.daysUntil)
 
-  // MOCK — wire to real activity log later
-  const activity = [
-    { id: 'a1', kind: 'joined',   who: 'Jordan Reeves',  detail: 'started in Dispatch',              mins: 8   },
-    { id: 'a2', kind: 'leave',    who: 'Marcus Obi',     detail: 'requested 2 days sick leave',      mins: 14  },
-    { id: 'a3', kind: 'review',   who: 'Sarah Chen',     detail: 'completed Q1 performance review',  mins: 47  },
-    { id: 'a4', kind: 'clockin',  who: 'Night shift',    detail: '18 staff clocked in',              mins: 62  },
-    { id: 'a5', kind: 'training', who: 'James Mitchell', detail: 'completed De-escalation course',   mins: 95  },
-    { id: 'a6', kind: 'warning',  who: 'Aisha Hussain',  detail: 'marked late (3rd this month)',     mins: 120 },
+  const getAnnualEvents = (field: 'dob' | 'startDate') =>
+    activeEmps
+      .filter(e => e[field])
+      .map(e => {
+        const raw        = e[field] as string
+        const [yr, mm, dd] = raw.split('-').map(Number)
+        let candidate    = new Date(todayMidnight.getFullYear(), mm - 1, dd)
+        if (candidate < todayMidnight) candidate = new Date(todayMidnight.getFullYear() + 1, mm - 1, dd)
+        const daysUntil  = Math.round((candidate.getTime() - todayMidnight.getTime()) / 86400000)
+        const yearCount  = candidate.getFullYear() - yr
+        return { emp: e, daysUntil, yearCount }
+      })
+      .filter(x => x.daysUntil >= 0 && x.daysUntil <= ALERT_WINDOW)
+      .sort((a, b) => a.daysUntil - b.daysUntil)
+
+  const upcomingBirthdays     = getAnnualEvents('dob')
+  const upcomingAnniversaries = getAnnualEvents('startDate')
+
+  // Mock performance — wire to performance collection when ready
+  const PERF_MOCK = [
+    { name: 'Sarah Khan',    score: 9.2, trend: +0.3 },
+    { name: 'Ahmed Raza',    score: 8.7, trend: +0.1 },
+    { name: 'Omar Hassan',   score: 8.4, trend: +0.5 },
+    { name: 'Zara Malik',    score: 7.9, trend: -0.2 },
+    { name: 'Kamran Sheikh', score: 7.6, trend:  0.0 },
   ]
 
   const handleApprove = (id: string) => approveRequest(id, currentUser?.name ?? 'HR')
   const handleDecline = (id: string) => declineRequest(id, currentUser?.name ?? 'HR')
-  const firstName = (currentUser?.name ?? 'there').split(' ')[0]
-
-  const timeLabel = today.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-  const dateLabel = today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase()
 
   const num = 'tabular-nums'
+  const greeting = today.getHours() < 12 ? 'Good morning' : today.getHours() < 17 ? 'Good afternoon' : 'Good evening'
+  const dateLabel = today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+
+  // ── KPI tile helper ─────────────────────────────────────────────────
+  function KPI({ icon: Icon, label, value, sub, color, onClick }: {
+    icon: React.ElementType; label: string; value: number | string
+    sub: string; color: string; onClick?: () => void
+  }) {
+    return (
+      <button onClick={onClick}
+        className="bg-white border border-gray-100 rounded-2xl p-4 flex items-center gap-3 text-left hover:shadow-md transition-shadow group">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: color + '18' }}>
+          <Icon size={18} style={{ color }} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">{label}</p>
+          <p className={`text-xl font-bold text-gray-900 leading-tight ${num}`}>{value}</p>
+          <p className="text-[11px] text-gray-400 leading-snug">{sub}</p>
+        </div>
+      </button>
+    )
+  }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
 
-      {/* ── HERO ── */}
-      <div className="relative overflow-hidden rounded-2xl p-7 text-white bg-[#12121E]">
-        <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full pointer-events-none"
-          style={{ background: 'radial-gradient(circle at 30% 30%, rgba(46,134,193,0.5), transparent 60%)' }} />
-        <div className="absolute -bottom-16 right-24 w-44 h-44 rounded-full pointer-events-none"
-          style={{ background: 'radial-gradient(circle, rgba(244,114,182,0.3), transparent 60%)' }} />
+      {/* ── HEADER ── */}
+      <div className="relative overflow-hidden rounded-2xl p-6 text-white"
+        style={{ background: 'linear-gradient(135deg, #1E1B4B 0%, #2E3B8B 50%, #1D6FA4 100%)' }}>
+        {/* decorative blobs */}
+        <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full opacity-20 pointer-events-none"
+          style={{ background: 'radial-gradient(circle, #818CF8, transparent 70%)' }} />
+        <div className="absolute bottom-0 right-32 w-32 h-32 rounded-full opacity-10 pointer-events-none"
+          style={{ background: 'radial-gradient(circle, #34D399, transparent 70%)' }} />
 
-        <div className="relative flex justify-between items-start gap-6 flex-wrap">
+        <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="text-[11px] opacity-60 tracking-wider font-medium">{dateLabel} · {timeLabel}</div>
-            <div className="text-3xl md:text-4xl font-bold tracking-tight leading-tight mt-3">
-              Morning, {firstName}.<br />
-              <span className="text-[#5DADE2]">{activeTotal} people on the clock today.</span>
-            </div>
-            <div className="flex items-center gap-2 mt-3 flex-wrap text-sm">
-              <span className="inline-flex items-center gap-1.5 bg-green-500/15 text-green-300 px-2.5 py-0.5 rounded-full text-[11px] font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> LIVE
+            <p className="text-sm text-white/60 font-medium">{dateLabel}</p>
+            <p className="text-2xl font-bold mt-0.5 tracking-tight">
+              {greeting}, {firstName}
+            </p>
+            <div className="flex items-center gap-3 mt-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 bg-green-400/20 text-green-300 px-2.5 py-0.5 rounded-full text-[11px] font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Live
               </span>
-              <span className="text-white/70">
-                {presentToday} clocked in · {hrLate} late · {hrAbsent} absent
+              <span className="text-white/60 text-[13px]">
+                {shiftEmps.length} clocked in · {hrLate} late · {hrAbsent} absent · {onLeaveToday} on leave
               </span>
             </div>
           </div>
-
-          <div className="flex gap-3">
+          <div className="flex gap-2 flex-wrap">
             {[
-              { l: 'Present',   v: presentPct,       sub: `${presentToday}/${activeTotal}`, c: '#10B981' },
-              { l: 'Approvals', v: pendingApprovals, sub: 'waiting',                        c: '#F05A3E', raw: true },
-              { l: 'Probation', v: probationDue,     sub: 'due 30d',                        c: '#F9A8D4', raw: true },
-            ].map(r => (
-              <div key={r.l} className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 text-center">
-                <Donut pct={r.raw ? 100 : r.v} size={66} stroke={6} color={r.c}>
-                  <div className={`text-lg font-bold ${num}`}>
-                    {r.v}{!r.raw && <span className="text-[10px] opacity-60">%</span>}
-                  </div>
-                </Donut>
-                <div className="text-[11px] mt-2 font-semibold">{r.l}</div>
-                <div className={`text-[10px] opacity-50 ${num}`}>{r.sub}</div>
+              { l: 'Headcount',  v: activeTotal,      c: '#6EE7B7' },
+              { l: 'On Shift',   v: shiftEmps.length, c: '#93C5FD' },
+              { l: 'Pending',    v: pendingApprovals, c: '#FCA5A5' },
+              { l: 'New / Month',v: newJoiners,        c: '#C4B5FD' },
+            ].map(s => (
+              <div key={s.l} className="bg-white/10 border border-white/15 rounded-xl px-3.5 py-2.5 text-center min-w-[64px]">
+                <p className={`text-xl font-bold ${num}`} style={{ color: s.c }}>{s.v}</p>
+                <p className="text-[10px] text-white/50 mt-0.5 font-medium">{s.l}</p>
               </div>
             ))}
           </div>
         </div>
-
-        <div className="relative mt-6 rounded-xl overflow-hidden grid grid-cols-4 gap-px bg-white/10">
-          {[
-            { l: 'New this month',    v: newJoiners,       c: '#6EE7B7' },
-            { l: 'Approvals pending', v: pendingApprovals, c: '#FBBF24' },
-            { l: 'Probation due',     v: probationDue,     c: '#F9A8D4' },
-            { l: 'Leave today',       v: onLeaveToday,     c: '#93C5FD' },
-          ].map(s => (
-            <div key={s.l} className="bg-[#12121E] px-4 py-3.5">
-              <div className="text-[10px] opacity-60 uppercase tracking-wide font-medium">{s.l}</div>
-              <div className={`text-2xl font-bold mt-0.5 ${num}`} style={{ color: s.c }}>{s.v}</div>
-            </div>
-          ))}
-        </div>
       </div>
 
-      {/* ── Main grid ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* ── KPI STRIP ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <KPI icon={Users}      label="Active Staff"    value={activeTotal}      sub={`+${ytdDelta} YTD`}             color="#2E86C1" onClick={() => navigate('/employees')} />
+        <KPI icon={Zap}        label="On Shift Now"    value={shiftEmps.length} sub="Clocked in today"               color="#10B981" onClick={() => navigate('/attendance')} />
+        <KPI icon={CalendarDays} label="Leave Today"   value={onLeaveToday}     sub="Approved absences"              color="#8B5CF6" onClick={() => navigate('/leave')} />
+        <KPI icon={UserCheck}  label="New This Month"  value={newJoiners}       sub={joinerDelta >= 0 ? `+${joinerDelta} vs last month` : `${joinerDelta} vs last month`} color="#F59E0B" onClick={() => navigate('/employees')} />
+        <KPI icon={Award}      label="Pending Approvals" value={pendingApprovals} sub="Leave requests"              color="#EF4444" onClick={() => navigate('/leave')} />
+      </div>
 
-        {/* LEFT: activity feed */}
-        <div className="lg:col-span-2 bg-white rounded-2xl p-5 flex flex-col gap-3">
-          <div className="flex justify-between items-center">
+      {/* ── ROW A: Turnover + Leave Requests ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+        {/* Workforce / Turnover (2/3) */}
+        <div className="lg:col-span-2 bg-white border border-gray-100 rounded-2xl p-5 flex flex-col gap-4">
+          <div className="flex items-start justify-between">
             <div>
-              <div className="text-[11px] tracking-wide text-gray-400 uppercase font-semibold">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5" />
-                Live activity
-              </div>
-              <div className="text-base font-bold">What's happening</div>
+              <p className="text-[11px] text-gray-400 uppercase tracking-widest font-semibold">Workforce</p>
+              <p className="text-base font-bold text-gray-900">Employee Turnover & Headcount</p>
             </div>
-            <button onClick={() => navigate('/reports')} className="text-xs text-primary font-semibold hover:underline">
-              Full log →
-            </button>
+            <button onClick={() => navigate('/reports')} className="text-[11px] text-primary font-semibold hover:underline">Full report →</button>
           </div>
-          <div className="flex flex-col">
-            {activity.map(a => {
-              const meta: Record<string, { c: string; bg: string; l: string }> = {
-                joined:   { c: '#10B981', bg: '#E7F9F1', l: 'Joined'   },
-                leave:    { c: '#8B5CF6', bg: '#F0ECFF', l: 'Leave'    },
-                review:   { c: '#2E86C1', bg: '#E5F0F8', l: 'Review'   },
-                clockin:  { c: '#10B981', bg: '#E7F9F1', l: 'Clock'    },
-                training: { c: '#F59E0B', bg: '#FEF8E7', l: 'Training' },
-                warning:  { c: '#EF4444', bg: '#FEF3F2', l: 'Warn'     },
-              }
-              const m = meta[a.kind] ?? meta.review
-              return (
-                <div key={a.id} className="py-2 flex items-center gap-3 border-b border-gray-50 last:border-0">
-                  <div className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide"
-                    style={{ background: m.bg, color: m.c }}>{m.l}</div>
-                  <div className="flex-1 text-[13px] text-secondary">
-                    <strong className="font-semibold">{a.who}</strong>{' '}
-                    <span className="text-gray-500">{a.detail}</span>
-                  </div>
-                  <div className={`text-[11px] text-gray-400 ${num}`}>{a.mins}m</div>
+
+          {/* Turnover stats row */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              {
+                icon: Users, label: 'Active Headcount', value: activeTotal,
+                sub: `${ytdDelta >= 0 ? '+' : ''}${ytdDelta} YTD`,
+                up: ytdDelta >= 0, color: '#2E86C1',
+              },
+              {
+                icon: UserMinus, label: 'Departed (All Time)', value: departed,
+                sub: `${Math.round((departed / totalEver) * 100)}% turnover rate`,
+                up: false, color: '#EF4444',
+              },
+              {
+                icon: TrendingUp, label: 'Retention Rate', value: `${retentionRate}%`,
+                sub: 'Active vs total ever',
+                up: retentionRate >= 80, color: '#10B981',
+              },
+            ].map(s => (
+              <div key={s.label} className="bg-gray-50 rounded-xl p-3.5">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">{s.label}</p>
+                  <s.icon size={13} style={{ color: s.color }} />
                 </div>
-              )
-            })}
+                <p className={`text-2xl font-bold ${num}`} style={{ color: s.color }}>{s.value}</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">{s.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* 12-month headcount area chart */}
+          <div>
+            <p className="text-[11px] text-gray-400 uppercase tracking-widest font-semibold mb-2">12-Month Headcount Trend</p>
+            <ResponsiveContainer width="100%" height={140}>
+              <AreaChart data={headcountTrend} margin={{ top: 4, right: 4, bottom: 0, left: -28 }}>
+                <defs>
+                  <linearGradient id="hcGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#2E86C1" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#2E86C1" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+                <XAxis dataKey="m" tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+                <Tooltip
+                  contentStyle={{ fontSize: 11, borderRadius: 10, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}
+                  formatter={(v: number) => [v, 'Headcount']}
+                />
+                <Area type="monotone" dataKey="active" stroke="#2E86C1" strokeWidth={2.5}
+                  fill="url(#hcGrad)" dot={false} activeDot={{ r: 5, fill: '#2E86C1' }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Joined this month vs last */}
+          <div className="flex items-center gap-4 pt-1 border-t border-gray-50">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span className="text-[12px] text-gray-600 font-medium">
+                <span className={`font-bold ${num}`}>{newJoiners}</span> joined this month
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[12px]">
+              {joinerDelta > 0
+                ? <><ArrowUpRight size={13} className="text-emerald-500" /><span className="text-emerald-600 font-semibold">+{joinerDelta} vs last month</span></>
+                : joinerDelta < 0
+                  ? <><ArrowUpRight size={13} className="text-red-400 rotate-90" /><span className="text-red-500 font-semibold">{joinerDelta} vs last month</span></>
+                  : <span className="text-gray-400">Same as last month</span>
+              }
+            </div>
           </div>
         </div>
 
-        {/* RIGHT: Action list */}
-        <div className="bg-white rounded-2xl p-5 flex flex-col gap-3">
-          <div className="flex justify-between items-center">
+        {/* Leave Requests (1/3) */}
+        <div className="bg-white border border-gray-100 rounded-2xl p-5 flex flex-col">
+          <div className="flex items-start justify-between mb-4">
             <div>
-              <div className="text-[11px] tracking-wide text-gray-400 uppercase font-semibold">Needs you</div>
-              <div className="text-base font-bold">Action list</div>
+              <p className="text-[11px] text-gray-400 uppercase tracking-widest font-semibold">Leave Requests</p>
+              <p className="text-base font-bold text-gray-900">Pending Approval</p>
             </div>
-            {(pendingApprovals + probationDue) > 0 && (
-              <span className={`bg-[#F05A3E] text-white text-[11px] font-bold px-2 py-0.5 rounded-full ${num}`}>
-                {pendingApprovals + probationDue}
+            {pendingApprovals > 0 && (
+              <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full tabular-nums">
+                {pendingApprovals}
               </span>
             )}
           </div>
 
-          {pendingApprovals > 0 && (
-            <div className="bg-red-50 border border-red-100 rounded-xl p-3 flex gap-2.5 items-center">
-              <div className="w-9 h-9 rounded-lg bg-[#F05A3E] text-white flex items-center justify-center shrink-0">
-                <Calendar size={16} />
+          {pendingList.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center py-8 gap-2">
+              <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center">
+                <Check size={18} className="text-green-500" />
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-semibold">{pendingApprovals} leave request{pendingApprovals !== 1 ? 's' : ''}</div>
-                <div className="text-[11px] text-gray-500">Awaiting your review</div>
-              </div>
-              <button onClick={() => navigate('/leave')} className="text-[11px] text-[#F05A3E] font-semibold">Review →</button>
+              <p className="text-sm font-semibold text-gray-700">All caught up</p>
+              <p className="text-xs text-gray-400">No pending requests</p>
             </div>
-          )}
-
-          {pendingList.slice(0, 3).map(lr => (
-            <div key={lr.id} className="bg-gray-50 rounded-xl p-2.5 flex items-center gap-2.5">
-              <InitialAvatar name={lr.employeeName ?? '?'} hue={hueFor(lr.employeeName ?? '')} size={32} />
-              <div className="flex-1 min-w-0">
-                <div className="text-[12.5px] font-semibold truncate">{lr.employeeName}</div>
-                <div className="text-[11px] text-gray-500">
-                  {LEAVE_TYPE_LABELS[lr.type] ?? lr.type} · {lr.days}d
+          ) : (
+            <div className="flex flex-col gap-2.5 flex-1">
+              {pendingList.slice(0, 5).map(lr => (
+                <div key={lr.id} className="group flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors">
+                  <InitialAvatar name={lr.employeeName ?? '?'} hue={hueFor(lr.employeeName ?? '')} size={36} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-gray-900 truncate">{lr.employeeName}</p>
+                    <p className="text-[11px] text-gray-400">
+                      {LEAVE_TYPE_LABELS[lr.type] ?? lr.type}
+                      {' · '}
+                      <span className="font-medium text-gray-600">{lr.days}d</span>
+                      {' · '}
+                      <span>{lr.startDate}</span>
+                    </p>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => handleApprove(lr.id)}
+                      title="Approve"
+                      className="w-7 h-7 rounded-lg bg-emerald-500 text-white flex items-center justify-center hover:bg-emerald-600 transition">
+                      <Check size={12} />
+                    </button>
+                    <button onClick={() => handleDecline(lr.id)}
+                      title="Decline"
+                      className="w-7 h-7 rounded-lg border border-gray-200 text-gray-400 flex items-center justify-center hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition">
+                      <X size={12} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-1">
-                <button onClick={() => handleApprove(lr.id)}
-                  className="w-7 h-7 rounded-lg bg-secondary text-white flex items-center justify-center hover:bg-black transition">
-                  <Check size={13} />
+              ))}
+              {pendingList.length > 5 && (
+                <button onClick={() => navigate('/leave')}
+                  className="text-[11px] text-primary font-semibold text-center py-2 hover:underline">
+                  +{pendingList.length - 5} more — view all →
                 </button>
-                <button onClick={() => handleDecline(lr.id)}
-                  className="w-7 h-7 rounded-lg border border-gray-200 bg-white text-gray-500 flex items-center justify-center hover:bg-gray-50 transition">
-                  <X size={13} />
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {probationDue > 0 && (
-            <div className="bg-violet-50 border border-violet-100 rounded-xl p-3 flex gap-2.5 items-center">
-              <div className="w-9 h-9 rounded-lg bg-violet-500 text-white flex items-center justify-center shrink-0">
-                <Award size={16} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-semibold">{probationDue} probation review{probationDue !== 1 ? 's' : ''} due</div>
-                <div className="text-[11px] text-gray-500">Within 30 days</div>
-              </div>
-              <button onClick={() => navigate('/performance')} className="text-[11px] text-violet-600 font-semibold">Open →</button>
+              )}
             </div>
           )}
 
-          {pendingApprovals === 0 && probationDue === 0 && (
-            <div className="text-center text-xs text-gray-400 py-6">All caught up — nothing on your desk.</div>
+          {recentLeave.length > 0 && (
+            <div className="mt-auto pt-3 border-t border-gray-50">
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold mb-2">Recently approved</p>
+              {recentLeave.map(r => (
+                <div key={r.id} className="flex items-center gap-2 py-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                  <span className="text-[11px] text-gray-500 truncate">{r.employeeName}</span>
+                  <span className="text-[11px] text-gray-400 ml-auto shrink-0">{r.days}d</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── PEOPLE ALERTS ── */}
+      <div className="bg-white border border-gray-100 rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-[11px] text-gray-400 uppercase tracking-widest font-semibold">Reminders</p>
+            <p className="text-base font-bold text-gray-900">
+              People Alerts
+              <span className="text-sm font-normal text-gray-400 ml-2">next 14 days</span>
+            </p>
+          </div>
+          {(certExpiring.length + upcomingBirthdays.length + upcomingAnniversaries.length) > 0 && (
+            <span className="bg-amber-500 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full tabular-nums">
+              {certExpiring.length + upcomingBirthdays.length + upcomingAnniversaries.length}
+            </span>
           )}
         </div>
 
-        {/* Headcount */}
-        <div className="bg-white rounded-2xl p-5 flex flex-col gap-3">
-          <div className="flex justify-between items-start">
-            <div>
-              <div className="text-[11px] tracking-wide text-gray-400 uppercase font-semibold">Headcount</div>
-              <div className={`text-xl font-bold mt-0.5 ${num}`}>
-                {activeTotal}{' '}
-                <span className={`text-[12px] font-semibold ${ytdDelta >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                  {ytdDelta >= 0 ? '+' : ''}{ytdDelta} YTD
-                </span>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+
+          {/* Certificate Expiry */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-7 h-7 bg-amber-50 rounded-lg flex items-center justify-center shrink-0">
+                <AlertTriangle size={13} className="text-amber-500" />
               </div>
+              <p className="text-sm font-semibold text-gray-800">Certificate Expiry</p>
+              {certExpiring.length > 0 && (
+                <span className="ml-auto text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">{certExpiring.length}</span>
+              )}
             </div>
-            <button onClick={() => navigate('/reports')} className="text-[11px] text-primary font-semibold hover:underline">Report →</button>
+            {certExpiring.length === 0 ? (
+              <p className="text-xs text-gray-400 italic py-2">All certificates valid.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {certExpiring.map(({ emp, daysUntil }) => (
+                  <div key={emp.id} className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl bg-amber-50">
+                    <InitialAvatar name={emp.name} hue={hueFor(emp.name)} size={28} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-semibold text-gray-900 truncate">{emp.name}</p>
+                      <p className="text-[11px] text-gray-400 truncate">{emp.jobTitle}</p>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 tabular-nums ${
+                      daysUntil === 0 ? 'bg-red-500 text-white' :
+                      daysUntil <= 3  ? 'bg-orange-100 text-orange-700' :
+                                        'bg-amber-100 text-amber-700'
+                    }`}>
+                      {daysUntil === 0 ? 'Today' : `${daysUntil}d`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="flex items-end gap-1 h-32">
-            {headcount.map((h, i) => {
-              const pct = (h.c - hcMin) / Math.max(1, hcMax - hcMin)
-              const hpx = 20 + pct * 90
-              const latest = i === headcount.length - 1
-              return (
-                <div key={h.m} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="w-full rounded-md"
-                    style={{ height: hpx, background: latest ? '#2E86C1' : '#E7E4DE' }} />
-                  <div className={`text-[9px] text-gray-400 ${num}`}>{h.m}</div>
+
+          {/* Birthdays */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-7 h-7 bg-pink-50 rounded-lg flex items-center justify-center shrink-0">
+                <Gift size={13} className="text-pink-500" />
+              </div>
+              <p className="text-sm font-semibold text-gray-800">Birthdays</p>
+              {upcomingBirthdays.length > 0 && (
+                <span className="ml-auto text-[10px] font-bold bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded-full">{upcomingBirthdays.length}</span>
+              )}
+            </div>
+            {upcomingBirthdays.length === 0 ? (
+              <p className="text-xs text-gray-400 italic py-2">No birthdays in the next 14 days.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {upcomingBirthdays.map(({ emp, daysUntil }) => (
+                  <div key={emp.id} className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl bg-pink-50">
+                    <InitialAvatar name={emp.name} hue={hueFor(emp.name)} size={28} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-semibold text-gray-900 truncate">{emp.name}</p>
+                      <p className="text-[11px] text-gray-400 truncate">{emp.jobTitle}</p>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 tabular-nums ${
+                      daysUntil === 0 ? 'bg-pink-500 text-white' : 'bg-pink-100 text-pink-700'
+                    }`}>
+                      {daysUntil === 0 ? 'Today' : `in ${daysUntil}d`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Work Anniversaries */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-7 h-7 bg-violet-50 rounded-lg flex items-center justify-center shrink-0">
+                <Trophy size={13} className="text-violet-500" />
+              </div>
+              <p className="text-sm font-semibold text-gray-800">Work Anniversaries</p>
+              {upcomingAnniversaries.length > 0 && (
+                <span className="ml-auto text-[10px] font-bold bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded-full">{upcomingAnniversaries.length}</span>
+              )}
+            </div>
+            {upcomingAnniversaries.length === 0 ? (
+              <p className="text-xs text-gray-400 italic py-2">No anniversaries in the next 14 days.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {upcomingAnniversaries.map(({ emp, daysUntil, yearCount }) => (
+                  <div key={emp.id} className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl bg-violet-50">
+                    <InitialAvatar name={emp.name} hue={hueFor(emp.name)} size={28} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-semibold text-gray-900 truncate">{emp.name}</p>
+                      <p className="text-[11px] text-gray-400">{yearCount} yr{yearCount !== 1 ? 's' : ''}</p>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 tabular-nums ${
+                      daysUntil === 0 ? 'bg-violet-500 text-white' : 'bg-violet-100 text-violet-700'
+                    }`}>
+                      {daysUntil === 0 ? 'Today' : `in ${daysUntil}d`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        </div>
+      </div>
+
+      {/* ── ROW B: On Shift | Performance | Departments ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+        {/* On Shift Now */}
+        <div className="bg-white border border-gray-100 rounded-2xl p-5 flex flex-col">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-[11px] text-gray-400 uppercase tracking-widest font-semibold">Live</p>
+              <p className="text-base font-bold text-gray-900">On Shift Now</p>
+            </div>
+            <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full text-[11px] font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              {shiftEmps.length} active
+            </div>
+          </div>
+
+          {shiftEmps.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center gap-2 py-6">
+              <Clock size={28} className="text-gray-200" />
+              <p className="text-sm text-gray-400">No active sessions</p>
+              <p className="text-[11px] text-gray-300">Staff clock-ins will appear here</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5 overflow-y-auto max-h-64">
+              {shiftEmps.map((e, i) => (
+                <div key={i} className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-gray-50 transition-colors">
+                  <InitialAvatar name={e.name} hue={hueFor(e.name)} size={34} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-gray-900 truncate">{e.name}</p>
+                    <p className="text-[11px] text-gray-400 truncate">{e.jobTitle}</p>
+                  </div>
+                  {e.since && (
+                    <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full shrink-0">
+                      {e.since}
+                    </span>
+                  )}
                 </div>
-              )
-            })}
+              ))}
+            </div>
+          )}
+          <button onClick={() => navigate('/attendance')}
+            className="mt-3 pt-3 border-t border-gray-50 text-[11px] text-primary font-semibold hover:underline text-center">
+            View full attendance →
+          </button>
+        </div>
+
+        {/* Performance */}
+        <div className="bg-white border border-gray-100 rounded-2xl p-5 flex flex-col">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-[11px] text-gray-400 uppercase tracking-widest font-semibold">Performance</p>
+              <p className="text-base font-bold text-gray-900">Top Performers</p>
+            </div>
+            <button onClick={() => navigate('/performance')} className="text-[11px] text-primary font-semibold hover:underline">
+              View all →
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-2.5">
+            {PERF_MOCK.map((p, i) => (
+              <div key={p.name} className="flex items-center gap-3">
+                <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-400 shrink-0">
+                  {i + 1}
+                </div>
+                <InitialAvatar name={p.name} hue={hueFor(p.name)} size={32} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12.5px] font-semibold text-gray-900 truncate">{p.name}</p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                      <div className="h-full rounded-full bg-violet-500" style={{ width: `${(p.score / 10) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className={`text-[13px] font-bold ${num} text-gray-800`}>{p.score}</span>
+                  {p.trend > 0
+                    ? <TrendingUp size={11} className="text-emerald-500" />
+                    : p.trend < 0
+                      ? <TrendingDown size={11} className="text-red-400" />
+                      : <Activity size={11} className="text-gray-300" />
+                  }
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-auto pt-3 border-t border-gray-50">
+            <div className="flex justify-between items-center">
+              <span className="text-[11px] text-gray-400">Avg team score</span>
+              <span className={`text-sm font-bold text-violet-600 ${num}`}>
+                {(PERF_MOCK.reduce((s, p) => s + p.score, 0) / PERF_MOCK.length).toFixed(1)}/10
+              </span>
+            </div>
+            <p className="text-[10px] text-gray-300 mt-0.5 italic">Mock data — wire to performance module</p>
           </div>
         </div>
 
-
-        {/* Shift coverage */}
-        <div className="bg-[#12121E] text-white rounded-2xl p-5 flex flex-col gap-3">
-          <div className="flex justify-between items-start">
+        {/* Department Breakdown */}
+        <div className="bg-white border border-gray-100 rounded-2xl p-5 flex flex-col">
+          <div className="flex items-center justify-between mb-4">
             <div>
-              <div className="text-[11px] tracking-wide opacity-60 uppercase font-semibold">Live shifts</div>
-              <div className="text-base font-bold mt-0.5">Shift coverage</div>
+              <p className="text-[11px] text-gray-400 uppercase tracking-widest font-semibold">Departments</p>
+              <p className="text-base font-bold text-gray-900">Headcount Split</p>
             </div>
-            <div className="text-[11px] opacity-60">Today</div>
+            <button onClick={() => navigate('/employees')} className="text-[11px] text-primary font-semibold hover:underline">
+              Employees →
+            </button>
           </div>
-          <div className="flex flex-col gap-2.5 flex-1 justify-center">
-            {shifts.map(s => {
-              const pct  = Math.min(100, (s.staffed / s.need) * 100)
-              const over = s.staffed >= s.need
-              return (
-                <div key={s.label}>
-                  <div className="flex justify-between text-[12px] mb-1">
+
+          {departments.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-8">No department data yet.</p>
+          ) : (
+            <>
+              {/* Segmented bar */}
+              <div className="flex h-2.5 rounded-full overflow-hidden mb-4 gap-px">
+                {departments.map(d => (
+                  <div key={d.name}
+                    title={`${d.name}: ${d.count}`}
+                    style={{ width: `${(d.count / totalDeptCount) * 100}%`, background: d.color }} />
+                ))}
+              </div>
+
+              <div className="flex flex-col gap-2 overflow-y-auto flex-1">
+                {departments.map(d => (
+                  <div key={d.name} className="flex items-center gap-2.5">
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
+                    <span className="text-[12.5px] font-medium text-gray-700 flex-1 truncate">{d.name}</span>
                     <div className="flex items-center gap-2">
-                      <strong className="font-semibold">{s.label}</strong>
-                      <span className={`opacity-50 text-[11px] ${num}`}>{s.start}–{s.end}</span>
-                    </div>
-                    <div className={`font-bold ${num}`}>
-                      <span style={{ color: over ? '#6EE7B7' : '#FCA5A5' }}>{s.staffed}</span>
-                      <span className="opacity-40">/{s.need}</span>
+                      <div className="w-20 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${(d.count / totalDeptCount) * 100}%`, background: d.color }} />
+                      </div>
+                      <span className={`text-[12px] font-bold text-gray-700 w-4 text-right ${num}`}>{d.count}</span>
                     </div>
                   </div>
-                  <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: s.color }} />
-                  </div>
-                </div>
-              )
-            })}
+                ))}
+              </div>
+            </>
+          )}
+
+          <div className="mt-3 pt-3 border-t border-gray-50 flex justify-between">
+            <span className="text-[11px] text-gray-400">Total active</span>
+            <span className={`text-[12px] font-bold text-gray-800 ${num}`}>{activeTotal}</span>
           </div>
-          <div className="text-[10px] opacity-40 italic">Placeholder data · wire to shift_plans when ready</div>
         </div>
       </div>
     </div>

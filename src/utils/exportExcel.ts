@@ -3,48 +3,37 @@ import type { FirebaseEmployee } from '../hooks/useFirebaseEmployees'
 import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS } from './constants'
 import { format } from 'date-fns'
 
-// ── Column map: field → display header ─────────────────────────────────
+// ── Column map matching Database.xlsx fields ───────────────────────────
 function toRow(e: FirebaseEmployee) {
   return {
     'Employee ID':                   e.employeeId,
     'Full Name':                     e.name,
-    'Pseudonym':                     e.pseudonym                 ?? '',
-    'Email':                         e.email,
-    'Phone':                         e.phone,
-    'Date of Birth':                 e.dob                       ?? '',
-    'Gender':                        e.gender                    ?? '',
-    'CNIC / National ID':            e.cnic                      ?? '',
-    'Marital Status':                e.maritalStatus             ?? '',
-    'Religion':                      e.religion                  ?? '',
-    'Father / Husband Name':         e.fatherHusbandName         ?? '',
-    'Mother Name':                   e.motherName                ?? '',
-    'Current City':                  e.currentCity               ?? '',
-    'Hometown':                      e.hometown                  ?? '',
-    'Current Address':               e.currentAddress            ?? '',
-    'Permanent Address':             e.permanentAddress          ?? '',
-    'Company Name':                  e.companyName               ?? '',
-    'Job Title':                     e.jobTitle,
-    'Department':                    e.department,
-    'Project / Client':              e.project                   ?? '',
-    'Employment Type':               EMPLOYMENT_TYPE_LABELS[e.employmentType] ?? e.employmentType,
-    'Status':                        STATUS_LABELS[e.status] ?? e.status,
+    'CNIC Number':                   e.cnic                       ?? '',
+    'Date of Birth':                 e.dob                        ?? '',
     'Date of Joining':               e.startDate,
-    'Work Location':                 e.workLocation              ?? '',
-    'Reporting Manager':             e.manager                   ?? '',
-    'Salary (PKR)':                  e.salary                    ?? '',
-    'Referred By':                   e.referredBy                ?? '',
-    'Emergency Contact Name':        e.emergencyContactName      ?? '',
-    'Emergency Contact Phone':       e.emergencyContactPhone     ?? '',
-    'Emergency Contact Relation':    e.emergencyContactRelation  ?? '',
-    'Type of Contact':               e.emergencyContactType      ?? '',
-    'Bank Name':                     e.bankName                  ?? '',
-    'Account / IBAN':                e.accountNumber             ?? '',
-    'Tax Number':                    e.taxNumber                 ?? '',
-    'Character Certificate':         e.characterCertificate      ?? '',
+    'Number':                        e.phone,
+    'Email':                         e.email,
+    'Job Title':                     e.jobTitle,
+    'Project':                       e.project                    ?? '',
+    'EMP. TYPE':                     EMPLOYMENT_TYPE_LABELS[e.employmentType] ?? e.employmentType,
+    'Status':                        STATUS_LABELS[e.status]      ?? e.status,
+    'Gender':                        e.gender                     ?? '',
+    'Marital Status':                e.maritalStatus              ?? '',
+    'Bank Account No.':              e.accountNumber              ?? '',
+    'Hometown':                      e.hometown                   ?? '',
+    'Current City':                  e.currentCity                ?? '',
+    'Temp. Address':                 e.currentAddress             ?? '',
+    'Permanent Address':             e.permanentAddress           ?? '',
+    'Company Name':                  e.companyName                ?? '',
+    'Name of Kin':                   e.emergencyContactName       ?? '',
+    'Relationship':                  e.emergencyContactRelation   ?? '',
+    'Kin Contact':                   e.emergencyContactPhone      ?? '',
+    'Type of Contact':               e.emergencyContactType       ?? '',
+    'Religion':                      e.religion                   ?? '',
+    'Family':                        e.fatherHusbandName          ?? '',
+    'Mother Name':                   e.motherName                 ?? '',
+    'Reffered By':                   e.referredBy                 ?? '',
     'Character Certificate Expiry':  e.characterCertificateExpiry ?? '',
-    'Skills':                        e.skills                    ?? '',
-    'Notes':                         e.notes                     ?? '',
-    'LinkedIn URL':                  e.linkedinUrl               ?? '',
   }
 }
 
@@ -56,9 +45,7 @@ function writeAndDownload(wb: XLSX.WorkBook, filename: string) {
 export function exportAllEmployees(employees: FirebaseEmployee[]) {
   const rows = employees.map(toRow)
   const ws   = XLSX.utils.json_to_sheet(rows)
-
-  // Column widths (39 columns)
-  ws['!cols'] = Array(39).fill({ wch: 22 })
+  ws['!cols'] = Array(29).fill({ wch: 22 })
 
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Employees')
@@ -69,51 +56,44 @@ export function exportAllEmployees(employees: FirebaseEmployee[]) {
 
 // ── Export ONE employee ─────────────────────────────────────────────────
 export function exportSingleEmployee(e: FirebaseEmployee) {
-  // Build a vertical key-value layout (looks better for a single record)
   const sections: { section: string; field: string; value: string | number }[] = [
-    // Personal
-    { section: 'Personal Info', field: 'Full Name',                   value: e.name },
-    { section: '',              field: 'Pseudonym',                   value: e.pseudonym              ?? '' },
-    { section: '',              field: 'Email',                       value: e.email },
-    { section: '',              field: 'Phone',                       value: e.phone },
-    { section: '',              field: 'Date of Birth',               value: e.dob                    ?? '' },
-    { section: '',              field: 'Gender',                      value: e.gender                 ?? '' },
-    { section: '',              field: 'CNIC / National ID',          value: e.cnic                   ?? '' },
-    { section: '',              field: 'Marital Status',              value: e.maritalStatus          ?? '' },
-    { section: '',              field: 'Religion',                    value: e.religion               ?? '' },
-    { section: '',              field: 'Father / Husband Name',       value: e.fatherHusbandName      ?? '' },
-    { section: '',              field: 'Mother Name',                 value: e.motherName             ?? '' },
-    { section: '',              field: 'Current City',                value: e.currentCity            ?? '' },
-    { section: '',              field: 'Hometown',                    value: e.hometown               ?? '' },
-    { section: '',              field: 'Current Address',             value: e.currentAddress         ?? '' },
-    { section: '',              field: 'Permanent Address',           value: e.permanentAddress       ?? '' },
-    // Employment
-    { section: 'Employment',    field: 'Employee ID',                 value: e.employeeId },
-    { section: '',              field: 'Company Name',                value: e.companyName            ?? '' },
-    { section: '',              field: 'Job Title',                   value: e.jobTitle },
-    { section: '',              field: 'Department',                  value: e.department },
-    { section: '',              field: 'Employment Type',             value: EMPLOYMENT_TYPE_LABELS[e.employmentType] ?? e.employmentType },
-    { section: '',              field: 'Status',                      value: STATUS_LABELS[e.status] ?? e.status },
-    { section: '',              field: 'Date of Joining',             value: e.startDate },
-    { section: '',              field: 'Work Location',               value: e.workLocation           ?? '' },
-    { section: '',              field: 'Reporting Manager',           value: e.manager                ?? '' },
-    { section: '',              field: 'Salary (PKR)',                value: e.salary                 ?? '' },
-    { section: '',              field: 'Referred By',                 value: e.referredBy             ?? '' },
-    // Emergency
-    { section: 'Emergency',     field: 'Contact Name',                value: e.emergencyContactName   ?? '' },
-    { section: '',              field: 'Contact Phone',               value: e.emergencyContactPhone  ?? '' },
-    { section: '',              field: 'Relationship',                value: e.emergencyContactRelation ?? '' },
-    { section: '',              field: 'Type of Contact',             value: e.emergencyContactType   ?? '' },
-    // Financial
-    { section: 'Financial',     field: 'Bank Name',                   value: e.bankName               ?? '' },
-    { section: '',              field: 'Account / IBAN',              value: e.accountNumber          ?? '' },
-    { section: '',              field: 'Tax Number',                  value: e.taxNumber              ?? '' },
-    { section: '',              field: 'Character Certificate',       value: e.characterCertificate   ?? '' },
-    { section: '',              field: 'Certificate Expiry',          value: e.characterCertificateExpiry ?? '' },
-    // Notes
-    { section: 'Notes & Skills', field: 'Skills',                     value: e.skills                 ?? '' },
-    { section: '',               field: 'Notes',                      value: e.notes                  ?? '' },
-    { section: '',               field: 'LinkedIn URL',               value: e.linkedinUrl            ?? '' },
+    { section: 'Personal',    field: 'Full Name',                    value: e.name },
+    { section: '',            field: 'CNIC Number',                  value: e.cnic                       ?? '' },
+    { section: '',            field: 'Date of Birth',                value: e.dob                        ?? '' },
+    { section: '',            field: 'Gender',                       value: e.gender                     ?? '' },
+    { section: '',            field: 'Marital Status',               value: e.maritalStatus              ?? '' },
+    { section: '',            field: 'Religion',                     value: e.religion                   ?? '' },
+    { section: '',            field: 'Family (F/H Name)',            value: e.fatherHusbandName          ?? '' },
+    { section: '',            field: 'Mother Name',                  value: e.motherName                 ?? '' },
+    { section: 'Employment',  field: 'Employee ID',                  value: e.employeeId },
+    { section: '',            field: 'Job Title',                    value: e.jobTitle },
+    { section: '',            field: 'Date of Joining',              value: e.startDate },
+    { section: '',            field: 'Project / Client',             value: e.project                    ?? '' },
+    { section: '',            field: 'Employment Type',              value: EMPLOYMENT_TYPE_LABELS[e.employmentType] ?? e.employmentType },
+    { section: '',            field: 'Status',                       value: STATUS_LABELS[e.status]      ?? e.status },
+    { section: '',            field: 'Company Name',                 value: e.companyName                ?? '' },
+    { section: '',            field: 'Referred By',                  value: e.referredBy                 ?? '' },
+    { section: 'Contact',     field: 'Number (Phone)',               value: e.phone },
+    { section: '',            field: 'Email',                        value: e.email },
+    { section: '',            field: 'Current City',                 value: e.currentCity                ?? '' },
+    { section: '',            field: 'Hometown',                     value: e.hometown                   ?? '' },
+    { section: '',            field: 'Temp. Address',                value: e.currentAddress             ?? '' },
+    { section: '',            field: 'Permanent Address',            value: e.permanentAddress           ?? '' },
+    { section: 'Next of Kin', field: 'Name of Kin',                  value: e.emergencyContactName       ?? '' },
+    { section: '',            field: 'Relationship',                 value: e.emergencyContactRelation   ?? '' },
+    { section: '',            field: 'Kin Contact',                  value: e.emergencyContactPhone      ?? '' },
+    { section: '',            field: 'Type of Contact',              value: e.emergencyContactType       ?? '' },
+    { section: 'Financial',   field: 'Bank Account No.',             value: e.accountNumber              ?? '' },
+    { section: '',            field: 'Char. Certificate Expiry',     value: e.characterCertificateExpiry ?? '' },
+    { section: 'Payroll',     field: 'Pay Type',                     value: e.payType === 'hourly' ? 'Hourly Rate' : 'Fixed Monthly Salary' },
+    { section: '',            field: 'Monthly Salary (PKR)',         value: e.salary                     ?? '' },
+    { section: '',            field: 'Hourly Rate (PKR)',            value: e.hourlyRate                 ?? '' },
+    { section: '',            field: 'Monthly Hours Threshold',      value: e.monthlyHours               ?? '' },
+    { section: '',            field: 'Overtime Rate (PKR / hr)',     value: e.overtimeRate               ?? '' },
+    { section: '',            field: 'EOBI Enrolled',                value: e.eobi ? 'Yes' : 'No' },
+    { section: '',            field: 'Fuel Allowance (PKR / mo)',    value: e.fuelAllowance              ?? '' },
+    { section: '',            field: 'Gym Allowance (PKR / mo)',     value: e.gymAllowance               ?? '' },
+    { section: '',            field: 'Security Deduction (PKR / mo)',value: e.securityDeduction          ?? '' },
   ]
 
   const ws = XLSX.utils.aoa_to_sheet([
@@ -124,7 +104,7 @@ export function exportSingleEmployee(e: FirebaseEmployee) {
     ...sections.map(r => [r.section, r.field, r.value]),
   ])
 
-  ws['!cols'] = [{ wch: 16 }, { wch: 22 }, { wch: 40 }]
+  ws['!cols'] = [{ wch: 16 }, { wch: 28 }, { wch: 40 }]
   ws['!rows'] = [{ hpt: 20 }, { hpt: 14 }]
 
   const wb = XLSX.utils.book_new()

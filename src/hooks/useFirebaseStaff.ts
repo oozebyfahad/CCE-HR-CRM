@@ -19,7 +19,7 @@ export interface FirebaseStaffMember {
   currentAddress?: string
   employeeId: string
   jobTitle: string
-  department: string
+  department?: string
   employmentType: string
   status: string
   startDate: string
@@ -83,7 +83,8 @@ export function useFirebaseStaff(col: StaffCollection) {
   }
 
   const updateStaff = async (id: string, data: Partial<FirebaseStaffMember>) => {
-    await updateDoc(doc(db, col, id), { ...data, updatedAt: serverTimestamp() })
+    const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined && v !== null))
+    await updateDoc(doc(db, col, id), { ...clean, updatedAt: serverTimestamp() })
   }
 
   const deleteStaff = async (id: string) => {

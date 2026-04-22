@@ -1,4 +1,4 @@
-import { X, Download, MapPin, Briefcase, CreditCard, AlertCircle, User } from 'lucide-react'
+import { X, Download, MapPin, Briefcase, CreditCard, User, Phone } from 'lucide-react'
 import { Avatar } from '../../../components/common/Avatar'
 import { Badge, statusVariant } from '../../../components/common/Badge'
 import { useCurrency } from '../../../context/CurrencyContext'
@@ -81,40 +81,37 @@ export default function ViewEmployeeModal({ employee: e, onClose, onEdit }: Prop
               <Row label="Gender"         value={e.gender} />
               <Row label="CNIC"           value={e.cnic} />
               <Row label="Marital Status" value={e.maritalStatus} />
-              <Row label="Current Address" value={e.currentAddress} />
+              <Row label="Religion"       value={e.religion} />
+              <Row label="Family"         value={e.fatherHusbandName} />
+              <Row label="Mother Name"    value={e.motherName} />
             </Section>
 
             <Section icon={Briefcase} title="Employment">
               <Row label="Job Title"       value={e.jobTitle} />
-              <Row label="Department"      value={e.department} />
+              <Row label="Project"         value={e.project} />
               <Row label="Type"            value={EMPLOYMENT_TYPE_LABELS[e.employmentType] ?? e.employmentType} />
               <Row label="Date of Joining" value={e.startDate} />
-              <Row label="Work Location"   value={e.workLocation} />
-              <Row label="Manager"         value={e.manager} />
+              <Row label="Company"         value={e.companyName} />
+              <Row label="Referred By"     value={e.referredBy} />
               <Row label="Salary"          value={e.salary ? fmt(e.salary) : undefined} />
             </Section>
 
-            <Section icon={MapPin} title="Additional">
+            <Section icon={MapPin} title="Address & Kin">
+              <Row label="Current City"      value={e.currentCity} />
+              <Row label="Hometown"          value={e.hometown} />
+              <Row label="Temp. Address"     value={e.currentAddress} />
               <Row label="Permanent Address" value={e.permanentAddress} />
-              <Row label="Emergency Contact" value={e.emergencyContactName} />
-              <Row label="Contact Phone"     value={e.emergencyContactPhone} />
+              <Row label="Name of Kin"       value={e.emergencyContactName} />
+              <Row label="Kin Contact"       value={e.emergencyContactPhone} />
               <Row label="Relationship"      value={e.emergencyContactRelation} />
             </Section>
 
             <Section icon={CreditCard} title="Financial">
-              <Row label="Bank Name"       value={e.bankName} />
-              <Row label="Account / IBAN"  value={e.accountNumber} />
-              <Row label="Tax Number"      value={e.taxNumber} />
+              <Row label="Bank Account No." value={e.accountNumber} />
+              <Row label="Cert. Expiry"     value={e.characterCertificateExpiry} />
             </Section>
 
           </div>
-
-          {(e.skills || e.notes) && (
-            <Section icon={AlertCircle} title="Notes & Skills">
-              <Row label="Skills" value={e.skills} />
-              <Row label="Notes"  value={e.notes} />
-            </Section>
-          )}
         </div>
       </div>
     </div>

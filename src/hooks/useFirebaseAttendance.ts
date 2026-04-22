@@ -132,7 +132,7 @@ export function useFirebaseAttendance(date: string, employees: FirebaseEmployee[
     return {
       employeeId:   emp.id,
       employeeName: emp.name,
-      department:   emp.department,
+      department:   emp.department ?? '',
       clockIn,
       clockOut,
       hoursWorked,
