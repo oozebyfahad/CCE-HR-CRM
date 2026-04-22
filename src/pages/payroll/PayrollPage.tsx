@@ -38,15 +38,22 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState('')
 
-  // Per-employee hours map: employeeId → hoursWorked
+  // Per-employee variable pay maps
   const active = employees.filter(e => e.status === 'active')
-  const [hoursMap, setHoursMap] = useState<Record<string, string>>({})
+  const [hoursMap,       setHoursMap]       = useState<Record<string, string>>({})
+  const [qaMap,          setQaMap]          = useState<Record<string, string>>({})
+  const [punctualityMap, setPunctualityMap] = useState<Record<string, string>>({})
 
-  const hourly  = active.filter(e => e.payType === 'hourly')
-  const fixed   = active.filter(e => e.payType !== 'hourly')
+  const hourly = active.filter(e => e.payType === 'hourly')
+  const fixed  = active.filter(e => e.payType !== 'hourly')
 
-  function setHours(id: string, val: string) {
-    setHoursMap(m => ({ ...m, [id]: val }))
+  function toNumMap(map: Record<string, string>): Record<string, number> {
+    const out: Record<string, number> = {}
+    Object.entries(map).forEach(([id, v]) => {
+      const n = parseFloat(v)
+      if (!isNaN(n) && n > 0) out[id] = n
+    })
+    return out
   }
 
   const handleCreate = async () => {
@@ -60,13 +67,15 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
       loans.filter(l => l.status === 'repaying').forEach(l => {
         loanMap[l.employeeId] = (loanMap[l.employeeId] ?? 0) + l.monthlyInstalment
       })
-      // Convert string inputs to numbers
-      const numericHours: Record<string, number> = {}
-      Object.entries(hoursMap).forEach(([id, v]) => {
-        const n = parseFloat(v)
-        if (!isNaN(n) && n > 0) numericHours[id] = n
-      })
-      const id = await createRun(month, employees, numericHours, advMap, loanMap, {}, {}, {}, {}, {})
+      const id = await createRun(
+        month, employees,
+        toNumMap(hoursMap),
+        advMap, loanMap,
+        {}, {},
+        toNumMap(qaMap),
+        toNumMap(punctualityMap),
+        {}, {},
+      )
       onCreated(id)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to create run.')
@@ -80,13 +89,13 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
           <div>
             <p className="text-sm font-bold text-secondary">New Payroll Run</p>
-            <p className="text-xs text-gray-400 mt-0.5">Step {step} of 2 — {step === 1 ? 'Select month' : 'Enter hours worked'}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Step {step} of 2 — {step === 1 ? 'Select month' : 'Enter hours & bonuses'}</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400">
             <X size={15} />
@@ -118,49 +127,63 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
             <div className="p-6 space-y-6">
 
               {/* Hourly employees */}
+              {/* ── Hourly staff ── */}
               {hourly.length > 0 && (
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <Clock size={14} className="text-amber-500" />
-                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Hourly Employees — enter actual hours worked this month</p>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Hourly Employees</p>
                   </div>
-                  <div className="border border-gray-100 rounded-xl overflow-hidden">
+                  <div className="border border-gray-100 rounded-xl overflow-x-auto">
                     <table className="w-full">
                       <thead className="bg-gray-50">
                         <tr>
                           <th className={thCls}>Employee</th>
-                          <th className={thCls}>Job Title</th>
                           <th className={thCls}>Rate (PKR/hr)</th>
                           <th className={thCls}>Hours Worked</th>
+                          <th className={thCls}>QA Bonus (PKR)</th>
+                          <th className={thCls}>Punctuality Bonus (PKR)</th>
                           <th className={thCls}>Est. Basic Pay</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {hourly.map(emp => {
-                          const hrs = parseFloat(hoursMap[emp.id] ?? '') || 0
-                          const est = Math.round((emp.hourlyRate ?? 0) * hrs)
+                          const hrs  = parseFloat(hoursMap[emp.id] ?? '') || 0
+                          const qa   = parseFloat(qaMap[emp.id] ?? '') || 0
+                          const punc = parseFloat(punctualityMap[emp.id] ?? '') || 0
+                          const est  = Math.round((emp.hourlyRate ?? 0) * hrs)
                           return (
                             <tr key={emp.id} className="hover:bg-gray-50/50">
                               <td className={tdCls}>
                                 <p className="font-medium text-gray-900">{emp.name}</p>
-                                <p className="text-xs text-gray-400">{emp.employeeId}</p>
+                                <p className="text-xs text-gray-400">{emp.employeeId} · {emp.jobTitle}</p>
                               </td>
-                              <td className={`${tdCls} text-gray-500`}>{emp.jobTitle}</td>
                               <td className={`${tdCls} font-medium text-gray-700`}>
                                 {emp.hourlyRate ? `PKR ${emp.hourlyRate.toLocaleString()}` : <span className="text-red-400 text-xs">Not set</span>}
                               </td>
                               <td className={tdCls}>
-                                <input
-                                  type="number" min={0} step={0.5}
-                                  placeholder="0"
+                                <input type="number" min={0} step={0.5} placeholder="0"
                                   value={hoursMap[emp.id] ?? ''}
-                                  onChange={e => setHours(emp.id, e.target.value)}
-                                  className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                                />
+                                  onChange={e => setHoursMap(m => ({ ...m, [emp.id]: e.target.value }))}
+                                  className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
                               </td>
                               <td className={tdCls}>
-                                <span className={hrs > 0 ? 'font-semibold text-green-600' : 'text-gray-300'}>
-                                  {hrs > 0 ? `PKR ${est.toLocaleString()}` : '—'}
+                                <input type="number" min={0} step={100} placeholder="0"
+                                  value={qaMap[emp.id] ?? ''}
+                                  onChange={e => setQaMap(m => ({ ...m, [emp.id]: e.target.value }))}
+                                  className="w-24 border border-green-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-200 text-green-700" />
+                              </td>
+                              <td className={tdCls}>
+                                <input type="number" min={0} step={100} placeholder="0"
+                                  value={punctualityMap[emp.id] ?? ''}
+                                  onChange={e => setPunctualityMap(m => ({ ...m, [emp.id]: e.target.value }))}
+                                  className="w-24 border border-blue-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-200 text-blue-700" />
+                              </td>
+                              <td className={tdCls}>
+                                <span className={hrs > 0 ? 'font-semibold text-gray-800' : 'text-gray-300'}>
+                                  {hrs > 0
+                                    ? `PKR ${(est + qa + punc).toLocaleString()}`
+                                    : '—'}
                                 </span>
                               </td>
                             </tr>
@@ -172,23 +195,23 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                 </div>
               )}
 
-              {/* Fixed monthly / managers */}
+              {/* ── Fixed monthly / managers ── */}
               {fixed.length > 0 && (
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <Banknote size={14} className="text-primary" />
-                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Fixed Monthly (Managers) — enter hours to calculate overtime</p>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Fixed Monthly (Managers)</p>
                   </div>
-                  <div className="border border-gray-100 rounded-xl overflow-hidden">
+                  <div className="border border-gray-100 rounded-xl overflow-x-auto">
                     <table className="w-full">
                       <thead className="bg-gray-50">
                         <tr>
                           <th className={thCls}>Employee</th>
                           <th className={thCls}>Fixed Salary</th>
-                          <th className={thCls}>Threshold</th>
-                          <th className={thCls}>OT Rate (PKR/hr)</th>
-                          <th className={thCls}>Hours Worked</th>
-                          <th className={thCls}>OT Hours</th>
+                          <th className={thCls}>Hours / Threshold</th>
+                          <th className={thCls}>OT Preview</th>
+                          <th className={thCls}>QA Bonus (PKR)</th>
+                          <th className={thCls}>Punctuality Bonus (PKR)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
@@ -206,29 +229,31 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                               <td className={`${tdCls} font-medium text-gray-700`}>
                                 {emp.salary ? `PKR ${emp.salary.toLocaleString()}` : <span className="text-red-400 text-xs">Not set</span>}
                               </td>
-                              <td className={`${tdCls} text-gray-500`}>{threshold} hrs</td>
-                              <td className={`${tdCls} text-gray-700`}>
-                                {emp.overtimeRate
-                                  ? `PKR ${emp.overtimeRate.toLocaleString()}`
-                                  : <span className="text-gray-300 text-xs">None</span>}
+                              <td className={tdCls}>
+                                <div className="flex items-center gap-1.5">
+                                  <input type="number" min={0} step={0.5} placeholder={String(threshold)}
+                                    value={hoursMap[emp.id] ?? ''}
+                                    onChange={e => setHoursMap(m => ({ ...m, [emp.id]: e.target.value }))}
+                                    className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                                  <span className="text-xs text-gray-400">/ {threshold}</span>
+                                </div>
                               </td>
                               <td className={tdCls}>
-                                <input
-                                  type="number" min={0} step={0.5}
-                                  placeholder={String(threshold)}
-                                  value={hoursMap[emp.id] ?? ''}
-                                  onChange={e => setHours(emp.id, e.target.value)}
-                                  className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                                />
+                                {otHrs > 0
+                                  ? <span className="text-purple-600 font-semibold text-xs">{otHrs}h → +PKR {otPay.toLocaleString()}</span>
+                                  : <span className="text-gray-300 text-xs">No OT</span>}
                               </td>
                               <td className={tdCls}>
-                                {otHrs > 0 ? (
-                                  <span className="text-purple-600 font-semibold">
-                                    {otHrs}h → +PKR {otPay.toLocaleString()}
-                                  </span>
-                                ) : (
-                                  <span className="text-gray-300 text-xs">No OT</span>
-                                )}
+                                <input type="number" min={0} step={100} placeholder="0"
+                                  value={qaMap[emp.id] ?? ''}
+                                  onChange={e => setQaMap(m => ({ ...m, [emp.id]: e.target.value }))}
+                                  className="w-24 border border-green-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-200 text-green-700" />
+                              </td>
+                              <td className={tdCls}>
+                                <input type="number" min={0} step={100} placeholder="0"
+                                  value={punctualityMap[emp.id] ?? ''}
+                                  onChange={e => setPunctualityMap(m => ({ ...m, [emp.id]: e.target.value }))}
+                                  className="w-24 border border-blue-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-200 text-blue-700" />
                               </td>
                             </tr>
                           )
@@ -237,7 +262,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                     </table>
                   </div>
                   <p className="text-[11px] text-gray-400 mt-2">
-                    Overtime only applies when hours exceed the threshold. Each manager's OT rate is set individually on their employee profile.
+                    Leave bonus fields blank (or 0) for employees who did not earn them this month.
                   </p>
                 </div>
               )}

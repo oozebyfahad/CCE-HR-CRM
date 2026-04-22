@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   collection, addDoc, updateDoc, deleteDoc,
-  doc, query, orderBy, onSnapshot, serverTimestamp, where, getDocs,
+  doc, query, orderBy, onSnapshot, serverTimestamp, getDocs,
 } from 'firebase/firestore'
 import { db } from '../config/firebase'
 import { calcPayroll, type PayrollResult } from '../utils/payroll'
@@ -20,6 +20,7 @@ export interface PayrollEntry {
   paidHolidayHours:  number
   eidDays:           number
   qualityBonus:      number
+  punctualityBonus:  number
   result:            PayrollResult
   notes?:            string
 }
@@ -63,6 +64,7 @@ export function useFirebasePayroll() {
     otherAddMap:      Record<string, number>,
     // Per-run variable pay (default 0 for all unless specified)
     qualityBonusMap:      Record<string, number>,  // empId → PKR
+    punctualityBonusMap:  Record<string, number>,  // empId → PKR
     eidDaysMap:           Record<string, number>,  // empId → number of Eid days
     paidHolidayHoursMap:  Record<string, number>,  // empId → holiday hours
   ): Promise<string> => {
@@ -73,10 +75,11 @@ export function useFirebasePayroll() {
 
     for (const emp of employees) {
       if (emp.status !== 'active') continue
-      const hours            = hoursMap[emp.id] ?? 0
+      const hours            = hoursMap[emp.id]            ?? 0
       const paidHolidayHours = paidHolidayHoursMap[emp.id] ?? 0
       const eidDays          = eidDaysMap[emp.id]          ?? 0
       const qualityBonus     = qualityBonusMap[emp.id]     ?? 0
+      const punctualityBonus = punctualityBonusMap[emp.id] ?? 0
 
       const result = calcPayroll({
         payType:           (emp.payType as 'hourly' | 'fixed_monthly') ?? 'fixed_monthly',
@@ -90,6 +93,7 @@ export function useFirebasePayroll() {
         fuelAllowance:     emp.fuelAllowance     ?? 0,
         gymAllowance:      emp.gymAllowance      ?? 0,
         qualityBonus,
+        punctualityBonus,
         otherAdditions:    otherAddMap[emp.id]   ?? 0,
         eobi:              emp.eobi ?? false,
         advances:          advanceMap[emp.id]    ?? 0,
@@ -102,12 +106,13 @@ export function useFirebasePayroll() {
         runId: '',
         employeeId:       emp.id,
         employeeName:     emp.name,
-        department:       emp.department,
+        department:       emp.department ?? '',
         payType:          emp.payType ?? 'fixed_monthly',
         hoursWorked:      hours,
         paidHolidayHours,
         eidDays,
         qualityBonus,
+        punctualityBonus,
         result,
       })
     }

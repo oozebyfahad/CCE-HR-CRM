@@ -54,10 +54,11 @@ export interface PayrollInput {
   // We pay an extra day-equivalent per Eid day (i.e. same again on top)
   eidDays: number
   // Allowances (all PKR/month, taxable — included in gross for WHT)
-  fuelAllowance:  number
-  gymAllowance:   number
-  qualityBonus:   number
-  otherAdditions: number
+  fuelAllowance:    number
+  gymAllowance:     number
+  qualityBonus:     number
+  punctualityBonus: number
+  otherAdditions:   number
   // Deductions
   eobi:              boolean
   advances:          number
@@ -77,6 +78,7 @@ export interface PayrollResult {
   fuelAllowance:    number
   gymAllowance:     number
   qualityBonus:     number
+  punctualityBonus: number
   otherAdditions:   number
   grossPay:         number
   // Deductions breakdown
@@ -128,14 +130,15 @@ export function calcPayroll(input: PayrollInput): PayrollResult {
     eidPay = Math.round(dailyRate * input.eidDays)
   }
 
-  const fuelAllowance  = input.fuelAllowance  ?? 0
-  const gymAllowance   = input.gymAllowance   ?? 0
-  const qualityBonus   = input.qualityBonus   ?? 0
-  const otherAdditions = input.otherAdditions ?? 0
+  const fuelAllowance    = input.fuelAllowance    ?? 0
+  const gymAllowance     = input.gymAllowance     ?? 0
+  const qualityBonus     = input.qualityBonus     ?? 0
+  const punctualityBonus = input.punctualityBonus ?? 0
+  const otherAdditions   = input.otherAdditions   ?? 0
 
   const grossPay =
     basicPay + overtimePay + eidPay +
-    fuelAllowance + gymAllowance + qualityBonus + otherAdditions
+    fuelAllowance + gymAllowance + qualityBonus + punctualityBonus + otherAdditions
 
   // WHT on full gross (allowances are taxable under Pakistani law)
   const tax          = calcMonthlyTax(grossPay)
@@ -159,6 +162,7 @@ export function calcPayroll(input: PayrollInput): PayrollResult {
     fuelAllowance,
     gymAllowance,
     qualityBonus,
+    punctualityBonus,
     otherAdditions,
     grossPay,
     withholdingTax:   tax,

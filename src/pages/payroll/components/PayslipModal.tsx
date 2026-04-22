@@ -60,8 +60,9 @@ export default function PayslipModal({ entry, month, onClose }: Props) {
       ...(r.eidPay         > 0 ? [['Eid Double Pay',    fmtPKR(r.eidPay),          '']] : []),
       ...(r.fuelAllowance  > 0 ? [['Fuel Allowance',    fmtPKR(r.fuelAllowance),   '']] : []),
       ...(r.gymAllowance   > 0 ? [['Gym Allowance',     fmtPKR(r.gymAllowance),    '']] : []),
-      ...(r.qualityBonus   > 0 ? [['Quality Bonus',     fmtPKR(r.qualityBonus),    '']] : []),
-      ...(r.otherAdditions > 0 ? [['Other Additions',   fmtPKR(r.otherAdditions),  '']] : []),
+      ...(r.qualityBonus     > 0 ? [['QA Bonus',           fmtPKR(r.qualityBonus),     '']] : []),
+      ...(r.punctualityBonus > 0 ? [['Punctuality Bonus', fmtPKR(r.punctualityBonus), '']] : []),
+      ...(r.otherAdditions   > 0 ? [['Other Additions',   fmtPKR(r.otherAdditions),   '']] : []),
       ['Gross Pay',              fmtPKR(r.grossPay),         ''],
       [],
       ['DEDUCTIONS', '', ''],
@@ -135,8 +136,9 @@ export default function PayslipModal({ entry, month, onClose }: Props) {
             <EarningRow label="Eid Double Pay"                     value={r.eidPay}           />
             <EarningRow label="Fuel Allowance"                     value={r.fuelAllowance}    />
             <EarningRow label="Gym Allowance"                      value={r.gymAllowance}     />
-            <EarningRow label="Quality Bonus"                      value={r.qualityBonus}     />
-            <EarningRow label="Other Additions"                    value={r.otherAdditions}   />
+            <EarningRow label="QA Bonus"           value={r.qualityBonus}     />
+            <EarningRow label="Punctuality Bonus" value={r.punctualityBonus} />
+            <EarningRow label="Other Additions"   value={r.otherAdditions}   />
             <div className="flex justify-between items-center pt-2 mt-1 border-t border-gray-100">
               <span className="text-xs font-bold text-secondary">Gross Pay</span>
               <span className="text-sm font-bold text-emerald-600">{fmtPKR(r.grossPay)}</span>
