@@ -7,61 +7,57 @@ import { db } from '../config/firebase'
 
 export interface FirebaseEmployee {
   id: string
-  // Basic
+  // Identity
+  employeeId: string
   name: string
-  email: string
-  phone: string
+  cnic?: string
   dob?: string
   gender?: string
-  cnic?: string
   maritalStatus?: string
-  currentAddress?: string
-  pseudonym?: string
   religion?: string
+  fatherHusbandName?: string
+  motherName?: string
+  // Contact
+  phone: string
+  email: string
+  currentAddress?: string   // Temp. Address
+  permanentAddress?: string
+  currentCity?: string
+  hometown?: string
   // Employment
-  employeeId: string
   jobTitle: string
-  department: string
-  project?: string        // client / taxi company they're assigned to
+  department?: string
+  project?: string
   employmentType: string
   status: string
   startDate: string
-  workLocation?: string
-  manager?: string
-  salary?: number
   companyName?: string
-  // Personal
-  hometown?: string
-  currentCity?: string
-  permanentAddress?: string
-  fatherHusbandName?: string
-  motherName?: string
   referredBy?: string
-  // Emergency contact
+  // Emergency / Next of Kin
   emergencyContactName?: string
-  emergencyContactPhone?: string
   emergencyContactRelation?: string
+  emergencyContactPhone?: string
   emergencyContactType?: string
   // Financial / Documents
-  bankName?: string
   accountNumber?: string
-  taxNumber?: string
-  characterCertificate?: string
   characterCertificateExpiry?: string
-  // Payroll
+  // Payroll (system fields)
   payType?: 'hourly' | 'fixed_monthly'
+  salary?: number
   hourlyRate?: number
-  monthlyHours?: number        // overtime threshold for fixed_monthly (default 160)
-  overtimeRate?: number        // PKR/hr above threshold
-  eobi?: boolean               // enrolled in EOBI
-  // Fixed monthly allowances / deductions (applied every payroll run)
-  fuelAllowance?: number       // PKR/month
-  gymAllowance?: number        // PKR/month
-  securityDeduction?: number   // PKR/month held as security deposit
-  // Optional
-  skills?: string
-  notes?: string
-  linkedinUrl?: string
+  monthlyHours?: number
+  overtimeRate?: number
+  eobi?: boolean
+  fuelAllowance?: number
+  gymAllowance?: number
+  securityDeduction?: number
+  // Leave policy
+  leavePolicy?: {
+    annual:  { total: number; paid: boolean }
+    sick:    { total: number; paid: boolean }
+    casual:  { total: number; paid: boolean }
+    unpaid:  { total: number; paid: boolean }
+  }
 }
 
 export function useFirebaseEmployees() {

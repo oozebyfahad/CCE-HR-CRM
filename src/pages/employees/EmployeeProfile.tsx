@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, collection, query, where, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import {
   ArrowLeft, Download, Pencil, Mail, Phone, MapPin, Calendar,
   Building2, Briefcase, ChevronDown, FileText,
   ShieldCheck, Heart, GraduationCap, Package, Plus, Send,
-  Target, MessageSquare, ClipboardList, Info, Search,
+  Target, MessageSquare, ClipboardList, Info, Search, Check, X,
 } from 'lucide-react'
 import { Badge, statusVariant } from '../../components/common/Badge'
 import { useCurrency } from '../../context/CurrencyContext'
@@ -22,6 +22,26 @@ import { cn } from '../../utils/cn'
 const PRIMARY_TABS = ['Personal','Job','Time Off','Pay Info','Documents','Performance','Timesheet','Benefits','Training','Assets'] as const
 const MORE_TABS    = ['Emergency','Notes'] as const
 type Tab = typeof PRIMARY_TABS[number] | typeof MORE_TABS[number]
+
+// ── Leave config ──────────────────────────────────────────────────────
+type LeaveKey = 'annual' | 'sick' | 'casual' | 'unpaid'
+const LEAVE_TYPES: { key: LeaveKey; label: string; color: string; defaultTotal: number; defaultPaid: boolean }[] = [
+  { key: 'annual',  label: 'Annual Leave',  color: '#2E86C1', defaultTotal: 20, defaultPaid: true  },
+  { key: 'sick',    label: 'Sick Leave',    color: '#10B981', defaultTotal: 10, defaultPaid: true  },
+  { key: 'casual',  label: 'Casual Leave',  color: '#8B5CF6', defaultTotal: 5,  defaultPaid: true  },
+  { key: 'unpaid',  label: 'Unpaid Leave',  color: '#9CA3AF', defaultTotal: 0,  defaultPaid: false },
+]
+
+interface LeaveRecord {
+  id: string
+  type: LeaveKey
+  startDate: string
+  endDate: string
+  days: number
+  status: 'pending' | 'approved' | 'declined'
+  reason?: string
+  createdAt?: string
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────
 const fmt      = (d?: string) => d ? new Date(d).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '—'
@@ -138,11 +158,15 @@ export default function EmployeeProfile() {
   const { id }    = useParams<{ id: string }>()
   const navigate  = useNavigate()
   const { fmt: fmtCurrency } = useCurrency()
-  const [emp,     setEmp]     = useState<FirebaseEmployee | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [tab,     setTab]     = useState<Tab>('Personal')
-  const [perfTab, setPerfTab] = useState<'Goals' | 'Feedback' | 'Assessments'>('Goals')
-  const [editing, setEditing] = useState(false)
+  const [emp,          setEmp]         = useState<FirebaseEmployee | null>(null)
+  const [loading,      setLoading]     = useState(true)
+  const [tab,          setTab]         = useState<Tab>('Personal')
+  const [perfTab,      setPerfTab]     = useState<'Goals' | 'Feedback' | 'Assessments'>('Goals')
+  const [editing,      setEditing]     = useState(false)
+  const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([])
+  const [leaveEditing, setLeaveEditing] = useState(false)
+  const [leaveDraft,   setLeaveDraft]   = useState<Record<LeaveKey, { total: number; paid: boolean }> | null>(null)
+  const [leaveSaving,  setLeaveSaving]  = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -153,11 +177,41 @@ export default function EmployeeProfile() {
     return unsub
   }, [id])
 
+  useEffect(() => {
+    if (!id) return
+    const q = query(collection(db, 'leave_requests'), where('employeeId', '==', id))
+    const unsub = onSnapshot(q, snap => {
+      setLeaveRecords(snap.docs.map(d => ({ id: d.id, ...d.data() } as LeaveRecord)))
+    }, () => {})
+    return unsub
+  }, [id])
+
   const handleUpdate = async (data: Omit<FirebaseEmployee, 'id'>) => {
     if (!id) return
     const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined && v !== null))
     await updateDoc(doc(db, 'employees', id), { ...clean, updatedAt: serverTimestamp() })
     setEditing(false)
+  }
+
+  const startLeaveEdit = () => {
+    if (!emp) return
+    const policy = emp.leavePolicy
+    setLeaveDraft({
+      annual:  { total: policy?.annual?.total  ?? 20, paid: policy?.annual?.paid  ?? true  },
+      sick:    { total: policy?.sick?.total    ?? 10, paid: policy?.sick?.paid    ?? true  },
+      casual:  { total: policy?.casual?.total  ?? 5,  paid: policy?.casual?.paid  ?? true  },
+      unpaid:  { total: policy?.unpaid?.total  ?? 0,  paid: policy?.unpaid?.paid  ?? false },
+    })
+    setLeaveEditing(true)
+  }
+
+  const saveLeavePolicy = async () => {
+    if (!id || !leaveDraft) return
+    setLeaveSaving(true)
+    await updateDoc(doc(db, 'employees', id), { leavePolicy: leaveDraft, updatedAt: serverTimestamp() })
+    setLeaveSaving(false)
+    setLeaveEditing(false)
+    setLeaveDraft(null)
   }
 
   if (loading) return (
@@ -371,41 +425,155 @@ export default function EmployeeProfile() {
           )}
 
           {/* ── Time Off ── */}
-          {tab === 'Time Off' && (
-            <>
-              {/* Balances */}
-              <SectionCard title="Leave Balances">
-                <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  {[
-                    { label: 'Annual Leave',  total: 20, used: 8,  color: '#2E86C1' },
-                    { label: 'Sick Leave',    total: 10, used: 2,  color: '#10B981' },
-                    { label: 'Casual Leave',  total: 5,  used: 1,  color: '#8B5CF6' },
-                    { label: 'Unpaid Leave',  total: 99, used: 0,  color: '#9CA3AF' },
-                  ].map(l => {
-                    const remaining = l.total === 99 ? '∞' : String(l.total - l.used)
-                    const pct = l.total === 99 ? 0 : (l.used / l.total) * 100
-                    return (
-                      <div key={l.label} className="space-y-2">
-                        <p className="text-xs font-semibold text-secondary">{l.label}</p>
-                        <div className="flex items-end justify-between">
-                          <span className="text-2xl font-bold" style={{ color: l.color }}>{remaining}</span>
-                          <span className="text-[10px] text-gray-400 mb-1">remaining</span>
-                        </div>
-                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: l.color }} />
-                        </div>
-                        <p className="text-[10px] text-gray-400">{l.used} used of {l.total === 99 ? '∞' : l.total}</p>
+          {tab === 'Time Off' && (() => {
+            const policy = emp.leavePolicy
+            const approvedRecords = leaveRecords.filter(r => r.status === 'approved')
+            const usedByType = (key: LeaveKey) =>
+              approvedRecords.filter(r => r.type === key).reduce((s, r) => s + (r.days ?? 0), 0)
+
+            return (
+              <>
+                {/* Leave Balances */}
+                <div className="card overflow-hidden">
+                  <div className="px-6 py-3.5 bg-gray-50/80 border-b border-gray-100 flex items-center justify-between">
+                    <p className="text-sm font-bold text-secondary">Leave Balances</p>
+                    {leaveEditing ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => { setLeaveEditing(false); setLeaveDraft(null) }}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:bg-gray-50 transition">
+                          <X size={12} /> Cancel
+                        </button>
+                        <button
+                          onClick={saveLeavePolicy}
+                          disabled={leaveSaving}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-secondary text-white text-xs font-semibold hover:bg-secondary/90 transition disabled:opacity-50">
+                          <Check size={12} /> {leaveSaving ? 'Saving…' : 'Save'}
+                        </button>
                       </div>
-                    )
-                  })}
+                    ) : (
+                      <button
+                        onClick={startLeaveEdit}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 transition">
+                        <Pencil size={11} /> Edit Allocations
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-5">
+                    {LEAVE_TYPES.map(lt => {
+                      const total = leaveEditing
+                        ? (leaveDraft?.[lt.key]?.total ?? lt.defaultTotal)
+                        : (policy?.[lt.key]?.total ?? lt.defaultTotal)
+                      const isPaid = leaveEditing
+                        ? (leaveDraft?.[lt.key]?.paid ?? lt.defaultPaid)
+                        : (policy?.[lt.key]?.paid ?? lt.defaultPaid)
+                      const used = usedByType(lt.key)
+                      const isUnlimited = total === 0 && !isPaid
+                      const remaining = isUnlimited ? '∞' : Math.max(0, total - used)
+                      const pct = (total > 0 && !isUnlimited) ? Math.min(100, (used / total) * 100) : 0
+
+                      return (
+                        <div key={lt.key} className="space-y-2.5">
+                          {/* Label + paid badge */}
+                          <div className="flex items-start justify-between gap-1">
+                            <p className="text-xs font-semibold text-secondary leading-tight">{lt.label}</p>
+                            {leaveEditing ? (
+                              <button
+                                onClick={() => setLeaveDraft(d => d ? { ...d, [lt.key]: { ...d[lt.key], paid: !d[lt.key].paid } } : d)}
+                                className={cn(
+                                  'text-[9px] px-1.5 py-0.5 rounded-full font-semibold border transition shrink-0',
+                                  (leaveDraft?.[lt.key]?.paid ?? lt.defaultPaid)
+                                    ? 'bg-green-100 text-green-700 border-green-200'
+                                    : 'bg-gray-100 text-gray-500 border-gray-200'
+                                )}>
+                                {(leaveDraft?.[lt.key]?.paid ?? lt.defaultPaid) ? 'Paid' : 'Unpaid'}
+                              </button>
+                            ) : (
+                              <span className={cn(
+                                'text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0',
+                                isPaid ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                              )}>
+                                {isPaid ? 'Paid' : 'Unpaid'}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Remaining count or editable input */}
+                          {leaveEditing ? (
+                            <div className="space-y-1">
+                              <label className="text-[9px] text-gray-400 uppercase tracking-wide">Total Days</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={leaveDraft?.[lt.key]?.total ?? lt.defaultTotal}
+                                onChange={e => setLeaveDraft(d => d ? {
+                                  ...d,
+                                  [lt.key]: { ...d[lt.key], total: Math.max(0, parseInt(e.target.value) || 0) }
+                                } : d)}
+                                className="w-full px-2 py-1.5 text-sm font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-center"
+                                style={{ color: lt.color }}
+                              />
+                            </div>
+                          ) : (
+                            <div className="flex items-end justify-between">
+                              <span className="text-2xl font-bold" style={{ color: lt.color }}>{remaining}</span>
+                              <span className="text-[10px] text-gray-400 mb-0.5">remaining</span>
+                            </div>
+                          )}
+
+                          {/* Progress bar */}
+                          {!leaveEditing && (
+                            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all duration-500"
+                                style={{ width: `${pct}%`, backgroundColor: lt.color }} />
+                            </div>
+                          )}
+
+                          {/* Stats */}
+                          <p className="text-[10px] text-gray-400">
+                            {used} used
+                            {!isUnlimited && ` of ${total}`}
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
-              </SectionCard>
-              {/* History */}
-              <SectionCard title="Leave History">
-                <Empty icon={Calendar} label="No leave requests on record." />
-              </SectionCard>
-            </>
-          )}
+
+                {/* Leave History */}
+                <SectionCard title="Leave History">
+                  {leaveRecords.length === 0 ? (
+                    <Empty icon={Calendar} label="No leave requests on record." />
+                  ) : (
+                    <DataTable
+                      cols={['Type', 'From', 'To', 'Days', 'Status', 'Reason']}
+                      rows={[...leaveRecords]
+                        .sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))
+                        .map(r => {
+                          const lt = LEAVE_TYPES.find(l => l.key === r.type)
+                          const statusStyles: Record<string, string> = {
+                            approved: 'bg-green-100 text-green-700',
+                            pending:  'bg-amber-100 text-amber-700',
+                            declined: 'bg-red-100 text-red-600',
+                          }
+                          return [
+                            <span className="font-medium" style={{ color: lt?.color }}>{lt?.label ?? r.type}</span>,
+                            fmtShort(r.startDate),
+                            fmtShort(r.endDate),
+                            r.days,
+                            <span className={cn('text-[10px] px-2 py-0.5 rounded-full font-semibold capitalize', statusStyles[r.status] ?? 'bg-gray-100 text-gray-500')}>
+                              {r.status}
+                            </span>,
+                            r.reason ?? '—',
+                          ]
+                        })}
+                    />
+                  )}
+                </SectionCard>
+              </>
+            )
+          })()}
 
           {/* ── Pay Info ── */}
           {tab === 'Pay Info' && (
