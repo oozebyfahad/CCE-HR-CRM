@@ -302,7 +302,7 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
   const isOwnProfile      = currentUser?.email === emp.email
   const canClockInOut     = isOwnProfile
   const canMarkAttendance = (role === 'hr' || role === 'admin') && !isOwnProfile
-  const canEdit           = role === 'hr' || role === 'admin' || isOwnProfile
+  const canEdit           = role === 'hr' || role === 'admin'
   const canApprove        = (role === 'admin' || role === 'hr' || role === 'team_lead') && !isOwnProfile
 
   const [weekStart,   setWeekStart]   = useState<Date>(() => weekMonday(new Date()))

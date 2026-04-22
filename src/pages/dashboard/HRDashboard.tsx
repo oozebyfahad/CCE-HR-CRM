@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import EmployeePortalDashboard from '../portal/EmployeeDashboard'
 import {
   LineChart, Line, AreaChart, Area, CartesianGrid, XAxis, YAxis,
   Tooltip, ResponsiveContainer,
@@ -1343,6 +1344,6 @@ export default function HRDashboard() {
   const name = user?.name ?? 'User'
 
   if (role === 'team_lead') return <TeamLeadDashboard name={name} />
-  if (role === 'employee')  return <EmployeeDashboard  name={name} />
+  if (role === 'employee')  return <EmployeePortalDashboard />
   return <AdminDashboard />   // admin and hr both see the full dashboard
 }

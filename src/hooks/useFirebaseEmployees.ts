@@ -45,19 +45,35 @@ export interface FirebaseEmployee {
   payType?: 'hourly' | 'fixed_monthly'
   salary?: number
   hourlyRate?: number
-  monthlyHours?: number
-  overtimeRate?: number
-  eobi?: boolean
-  fuelAllowance?: number
-  gymAllowance?: number
-  securityDeduction?: number
-  // Leave policy
+  monthlyHours?: number        // overtime threshold for fixed_monthly (default 160)
+  overtimeRate?: number        // PKR/hr above threshold
+  eobi?: boolean               // enrolled in EOBI
+  // Fixed monthly allowances / deductions (applied every payroll run)
+  fuelAllowance?: number       // PKR/month
+  gymAllowance?: number        // PKR/month
+  securityDeduction?: number   // PKR/month held as security deposit
+  // Leave policy (allocations per employee)
   leavePolicy?: {
     annual:  { total: number; paid: boolean }
     sick:    { total: number; paid: boolean }
     casual:  { total: number; paid: boolean }
     unpaid:  { total: number; paid: boolean }
   }
+  // Employment details
+  manager?: string
+  workLocation?: string
+  // Financial
+  taxNumber?: string       // NTN
+  bankName?: string
+  // Documents (portal upload reference)
+  characterCertificate?: string
+  // Optional profile fields
+  skills?: string
+  notes?: string
+  linkedinUrl?: string
+  // Profile photo (stored as resized base64 data URL)
+  photoUrl?: string
+  photoApproved?: boolean
 }
 
 export function useFirebaseEmployees() {
