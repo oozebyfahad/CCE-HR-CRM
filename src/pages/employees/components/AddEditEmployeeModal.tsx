@@ -1,30 +1,29 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { X, ChevronRight } from 'lucide-react'
 import { cn } from '../../../utils/cn'
+import { DEPARTMENTS } from '../../../utils/constants'
 import type { FirebaseEmployee } from '../../../hooks/useFirebaseEmployees'
 
-const TABS = ['Basic Info', 'Employment', 'Additional', 'Financial', 'Payroll'] as const
+const TABS = ['Personal', 'Employment', 'Address & Kin', 'Financial', 'Payroll'] as const
 type Tab = typeof TABS[number]
 
-const DEPARTMENTS  = ['Operations', 'Customer Service', 'Dispatch', 'Admin', 'Management', 'IT', 'HR', 'Finance', 'Marketing', 'QA']
 const PROJECTS     = ['TakeMe', 'TC Cars', 'A1 Ace Taxis', 'Value Cars', 'Tower Cabs', 'Intercity', 'ADT', 'VGT', '1AB', 'Bounds', 'Birmingham', 'Other']
 const EMP_TYPES    = [{ v: 'full_time', l: 'Full-Time' }, { v: 'part_time', l: 'Part-Time' }, { v: 'contract', l: 'Contract' }, { v: 'agency', l: 'Agency' }]
 const STATUSES     = [{ v: 'active', l: 'Active' }, { v: 'on_leave', l: 'On Leave' }, { v: 'suspended', l: 'Suspended' }, { v: 'resigned', l: 'Resigned' }, { v: 'terminated', l: 'Terminated' }]
 const GENDERS      = ['Male', 'Female', 'Other', 'Prefer not to say']
 const MARITAL      = ['Single', 'Married', 'Divorced', 'Widowed']
-
-const RELIGIONS = ['Islam', 'Christianity', 'Hinduism', 'Other']
+const RELIGIONS    = ['Islam', 'Christianity', 'Hinduism', 'Other']
 
 const EMPTY: Omit<FirebaseEmployee, 'id'> = {
-  name: '', email: '', phone: '', dob: '', gender: '', cnic: '', maritalStatus: '', currentAddress: '',
-  pseudonym: '', religion: '', fatherHusbandName: '', motherName: '',
-  employeeId: '', jobTitle: '', department: '', project: '', employmentType: 'full_time', status: 'active', startDate: '',
-  workLocation: '', manager: '', salary: undefined, companyName: '', referredBy: '',
-  currentCity: '', hometown: '',
-  permanentAddress: '', emergencyContactName: '', emergencyContactPhone: '', emergencyContactRelation: '', emergencyContactType: '',
-  bankName: '', accountNumber: '', taxNumber: '', characterCertificate: '', characterCertificateExpiry: '',
-  skills: '', notes: '', linkedinUrl: '',
-  payType: 'fixed_monthly', hourlyRate: undefined, monthlyHours: 160, overtimeRate: undefined, eobi: false,
+  employeeId: '', name: '', cnic: '', dob: '', gender: '', maritalStatus: '', religion: '',
+  fatherHusbandName: '', motherName: '',
+  phone: '', email: '', currentAddress: '', permanentAddress: '', currentCity: '', hometown: '',
+  jobTitle: '', department: '', project: '', employmentType: 'full_time', status: 'active',
+  startDate: '', companyName: '', referredBy: '',
+  emergencyContactName: '', emergencyContactRelation: '', emergencyContactPhone: '', emergencyContactType: '',
+  accountNumber: '', characterCertificateExpiry: '',
+  payType: 'fixed_monthly', salary: undefined, hourlyRate: undefined,
+  monthlyHours: 160, overtimeRate: undefined, eobi: false,
   fuelAllowance: undefined, gymAllowance: undefined, securityDeduction: undefined,
 }
 
@@ -32,7 +31,7 @@ interface Props {
   employee?: FirebaseEmployee | null
   onSave: (data: Omit<FirebaseEmployee, 'id'>) => Promise<void>
   onClose: () => void
-  tableLabel?: string // e.g. "HR Staff", "Team Lead" — shown in header when adding from Settings
+  tableLabel?: string
 }
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
@@ -49,10 +48,11 @@ function Field({ label, required, children }: { label: string; required?: boolea
 const inp = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-white text-gray-800 placeholder-gray-400 transition'
 
 export default function AddEditEmployeeModal({ employee, onSave, onClose, tableLabel }: Props) {
-  const [tab,     setTab]     = useState<Tab>('Basic Info')
-  const [form,    setForm]    = useState<Omit<FirebaseEmployee, 'id'>>(EMPTY)
-  const [saving,  setSaving]  = useState(false)
-  const [errors,  setErrors]  = useState<Record<string, string>>({})
+  const [tab,       setTab]      = useState<Tab>('Personal')
+  const [form,      setForm]     = useState<Omit<FirebaseEmployee, 'id'>>(EMPTY)
+  const [saving,    setSaving]   = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [errors,    setErrors]   = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (employee) {
@@ -63,17 +63,14 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
     }
   }, [employee])
 
-  const set = (field: keyof typeof EMPTY, value: string | number) =>
+  const set = (field: keyof typeof EMPTY, value: unknown) =>
     setForm(prev => ({ ...prev, [field]: value }))
-
-  const [saveError, setSaveError] = useState('')
 
   const validate = () => {
     const e: Record<string, string> = {}
     if (!form.name.trim())       e.name       = 'Required'
     if (!form.employeeId.trim()) e.employeeId = 'Required'
     if (!form.jobTitle.trim())   e.jobTitle   = 'Required'
-    if (!form.department)        e.department = 'Required'
     if (!form.startDate)         e.startDate  = 'Required'
     setErrors(e)
     return Object.keys(e).length === 0
@@ -82,7 +79,7 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setSaveError('')
-    if (!validate()) { setTab('Basic Info'); return }
+    if (!validate()) { setTab('Personal'); return }
     setSaving(true)
     try {
       await onSave(form)
@@ -134,48 +131,35 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
 
-            {/* ── Basic Info ── */}
-            {tab === 'Basic Info' && (
+            {/* ── 1. Personal ── */}
+            {tab === 'Personal' && (
               <>
                 <div className="grid sm:grid-cols-2 gap-4">
                   <Field label="Full Name" required>
-                    <input className={inp} value={form.name} onChange={e => set('name', e.target.value)} placeholder="John Smith" />
+                    <input className={inp} value={form.name} onChange={e => set('name', e.target.value)} placeholder="Ahmed Raza" />
                     {err('name')}
                   </Field>
-                  <Field label="Email Address" required>
-                    <input className={inp} type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="john@cabcallexperts.com" />
-                    {err('email')}
+                  <Field label="CNIC Number">
+                    <input className={inp} value={form.cnic ?? ''} onChange={e => set('cnic', e.target.value)} placeholder="42201-1234567-8" />
                   </Field>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Field label="Phone Number" required>
-                    <input className={inp} value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+92 300 0000000" />
-                    {err('phone')}
-                  </Field>
                   <Field label="Date of Birth">
-                    <input className={inp} type="date" value={form.dob} onChange={e => set('dob', e.target.value)} />
+                    <input className={inp} type="date" value={form.dob ?? ''} onChange={e => set('dob', e.target.value)} />
                   </Field>
-                </div>
-                <div className="grid sm:grid-cols-3 gap-4">
                   <Field label="Gender">
-                    <select className={inp} value={form.gender} onChange={e => set('gender', e.target.value)}>
+                    <select className={inp} value={form.gender ?? ''} onChange={e => set('gender', e.target.value)}>
                       <option value="">Select…</option>
                       {GENDERS.map(g => <option key={g}>{g}</option>)}
                     </select>
                   </Field>
-                  <Field label="CNIC / National ID">
-                    <input className={inp} value={form.cnic} onChange={e => set('cnic', e.target.value)} placeholder="XXXXX-XXXXXXX-X" />
-                  </Field>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
                   <Field label="Marital Status">
-                    <select className={inp} value={form.maritalStatus} onChange={e => set('maritalStatus', e.target.value)}>
+                    <select className={inp} value={form.maritalStatus ?? ''} onChange={e => set('maritalStatus', e.target.value)}>
                       <option value="">Select…</option>
                       {MARITAL.map(m => <option key={m}>{m}</option>)}
                     </select>
-                  </Field>
-                </div>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Field label="Pseudonym / Alias">
-                    <input className={inp} value={form.pseudonym ?? ''} onChange={e => set('pseudonym', e.target.value)} placeholder="Nickname or alias" />
                   </Field>
                   <Field label="Religion">
                     <select className={inp} value={form.religion ?? ''} onChange={e => set('religion', e.target.value)}>
@@ -185,57 +169,49 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                   </Field>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Field label="Father / Husband Name">
+                  <Field label="Family (Father / Husband Name)">
                     <input className={inp} value={form.fatherHusbandName ?? ''} onChange={e => set('fatherHusbandName', e.target.value)} placeholder="Father or husband's name" />
                   </Field>
                   <Field label="Mother Name">
-                    <input className={inp} value={form.motherName ?? ''} onChange={e => set('motherName', e.target.value)} placeholder="Mother's name" />
+                    <input className={inp} value={form.motherName ?? ''} onChange={e => set('motherName', e.target.value)} placeholder="Mother's full name" />
                   </Field>
                 </div>
-                <Field label="Current Address">
-                  <textarea className={cn(inp, 'resize-none')} rows={2} value={form.currentAddress} onChange={e => set('currentAddress', e.target.value)} placeholder="Street, City, Country" />
-                </Field>
-                <Field label="LinkedIn Profile URL">
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="#0A66C2"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
-                    </span>
-                    <input className={cn(inp, 'pl-8')} value={form.linkedinUrl ?? ''} onChange={e => set('linkedinUrl', e.target.value)} placeholder="https://linkedin.com/in/username" />
-                  </div>
-                </Field>
               </>
             )}
 
-            {/* ── Employment ── */}
+            {/* ── 2. Employment ── */}
             {tab === 'Employment' && (
               <>
                 <div className="grid sm:grid-cols-2 gap-4">
                   <Field label="Employee ID" required>
-                    <input className={inp} value={form.employeeId} onChange={e => set('employeeId', e.target.value)} placeholder="CCE001" />
+                    <input className={inp} value={form.employeeId} onChange={e => set('employeeId', e.target.value)} placeholder="CCE-1001" />
                     {err('employeeId')}
                   </Field>
-                  <Field label="Job Title / Designation" required>
-                    <input className={inp} value={form.jobTitle} onChange={e => set('jobTitle', e.target.value)} placeholder="Dispatch Coordinator" />
+                  <Field label="Job Title" required>
+                    <input className={inp} value={form.jobTitle} onChange={e => set('jobTitle', e.target.value)} placeholder="Dispatch Agent" />
                     {err('jobTitle')}
                   </Field>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Field label="Department" required>
-                    <select className={inp} value={form.department} onChange={e => set('department', e.target.value)}>
-                      <option value="">Select…</option>
-                      {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
-                    </select>
-                    {err('department')}
+                  <Field label="Date of Joining" required>
+                    <input className={inp} type="date" value={form.startDate} onChange={e => set('startDate', e.target.value)} />
+                    {err('startDate')}
                   </Field>
-                  <Field label="Project / Client Company">
+                  <Field label="Project / Client">
                     <select className={inp} value={form.project ?? ''} onChange={e => set('project', e.target.value)}>
                       <option value="">Select…</option>
                       {PROJECTS.map(p => <option key={p}>{p}</option>)}
                     </select>
                   </Field>
                 </div>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Field label="Employment Type" required>
+                <div className="grid sm:grid-cols-3 gap-4">
+                  <Field label="Department">
+                    <select className={inp} value={form.department ?? ''} onChange={e => set('department', e.target.value)}>
+                      <option value="">Select…</option>
+                      {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Employment Type">
                     <select className={inp} value={form.employmentType} onChange={e => set('employmentType', e.target.value)}>
                       {EMP_TYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}
                     </select>
@@ -247,103 +223,77 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                   </Field>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Field label="Date of Joining" required>
-                    <input className={inp} type="date" value={form.startDate} onChange={e => set('startDate', e.target.value)} />
-                    {err('startDate')}
+                  <Field label="Email">
+                    <input className={inp} type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="ahmed@cabcallexperts.com" />
                   </Field>
-                  <Field label="Salary (PKR)">
-                    <input className={inp} type="number" value={form.salary ?? ''} onChange={e => set('salary', Number(e.target.value))} placeholder="28000" />
-                  </Field>
-                </div>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Field label="Work Location">
-                    <input className={inp} value={form.workLocation} onChange={e => set('workLocation', e.target.value)} placeholder="Head Office" />
-                  </Field>
-                  <Field label="Reporting Manager">
-                    <input className={inp} value={form.manager} onChange={e => set('manager', e.target.value)} placeholder="Manager name" />
+                  <Field label="Number (Phone)">
+                    <input className={inp} value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="03001234567" />
                   </Field>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
                   <Field label="Company Name">
-                    <input className={inp} value={form.companyName ?? ''} onChange={e => set('companyName', e.target.value)} placeholder="CCE Pvt Ltd" />
+                    <input className={inp} value={form.companyName ?? ''} onChange={e => set('companyName', e.target.value)} placeholder="CabCall Experts" />
                   </Field>
                   <Field label="Referred By">
                     <input className={inp} value={form.referredBy ?? ''} onChange={e => set('referredBy', e.target.value)} placeholder="Who referred this employee" />
                   </Field>
                 </div>
+                <Field label="Character Certificate Expiry Date">
+                  <input className={cn(inp, 'sm:w-1/2')} type="date" value={form.characterCertificateExpiry ?? ''} onChange={e => set('characterCertificateExpiry', e.target.value)} />
+                </Field>
               </>
             )}
 
-            {/* ── Additional ── */}
-            {tab === 'Additional' && (
+            {/* ── 3. Address & Kin ── */}
+            {tab === 'Address & Kin' && (
               <>
                 <div className="grid sm:grid-cols-2 gap-4">
                   <Field label="Current City">
-                    <input className={inp} value={form.currentCity ?? ''} onChange={e => set('currentCity', e.target.value)} placeholder="e.g. Lahore" />
+                    <input className={inp} value={form.currentCity ?? ''} onChange={e => set('currentCity', e.target.value)} placeholder="Rawalpindi" />
                   </Field>
                   <Field label="Hometown">
-                    <input className={inp} value={form.hometown ?? ''} onChange={e => set('hometown', e.target.value)} placeholder="e.g. Faisalabad" />
+                    <input className={inp} value={form.hometown ?? ''} onChange={e => set('hometown', e.target.value)} placeholder="Karachi" />
                   </Field>
                 </div>
-                <Field label="Permanent Address">
-                  <textarea className={cn(inp, 'resize-none')} rows={2} value={form.permanentAddress} onChange={e => set('permanentAddress', e.target.value)} placeholder="Permanent address if different" />
+                <Field label="Temp. Address">
+                  <textarea className={cn(inp, 'resize-none')} rows={2} value={form.currentAddress ?? ''} onChange={e => set('currentAddress', e.target.value)} placeholder="H# 12, Street 5, Satellite Town, Rawalpindi" />
                 </Field>
-                <div className="pt-2 pb-1">
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Emergency Contact</p>
+                <Field label="Permanent Address">
+                  <textarea className={cn(inp, 'resize-none')} rows={2} value={form.permanentAddress ?? ''} onChange={e => set('permanentAddress', e.target.value)} placeholder="Permanent home address" />
+                </Field>
+
+                <div className="border-t border-gray-100 pt-4">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Next of Kin / Emergency Contact</p>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Field label="Contact Name">
-                    <input className={inp} value={form.emergencyContactName} onChange={e => set('emergencyContactName', e.target.value)} placeholder="Full name" />
+                  <Field label="Name of Kin">
+                    <input className={inp} value={form.emergencyContactName ?? ''} onChange={e => set('emergencyContactName', e.target.value)} placeholder="Full name" />
                   </Field>
-                  <Field label="Contact Number">
-                    <input className={inp} value={form.emergencyContactPhone} onChange={e => set('emergencyContactPhone', e.target.value)} placeholder="+92 300 0000000" />
-                  </Field>
-                </div>
-                <div className="grid sm:grid-cols-2 gap-4">
                   <Field label="Relationship">
-                    <input className={inp} value={form.emergencyContactRelation} onChange={e => set('emergencyContactRelation', e.target.value)} placeholder="e.g. Spouse, Parent" />
+                    <input className={inp} value={form.emergencyContactRelation ?? ''} onChange={e => set('emergencyContactRelation', e.target.value)} placeholder="e.g. Brother, Mother" />
+                  </Field>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Field label="Kin Contact">
+                    <input className={inp} value={form.emergencyContactPhone ?? ''} onChange={e => set('emergencyContactPhone', e.target.value)} placeholder="03009876543" />
                   </Field>
                   <Field label="Type of Contact">
-                    <input className={inp} value={form.emergencyContactType ?? ''} onChange={e => set('emergencyContactType', e.target.value)} placeholder="e.g. Family, Friend" />
+                    <input className={inp} value={form.emergencyContactType ?? ''} onChange={e => set('emergencyContactType', e.target.value)} placeholder="Mobile / Landline" />
                   </Field>
                 </div>
               </>
             )}
 
-            {/* ── Financial ── */}
+            {/* ── 4. Financial ── */}
             {tab === 'Financial' && (
               <>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Field label="Bank Name">
-                    <input className={inp} value={form.bankName} onChange={e => set('bankName', e.target.value)} placeholder="HBL, UBL, Meezan..." />
-                  </Field>
-                  <Field label="Account Number / IBAN">
-                    <input className={inp} value={form.accountNumber} onChange={e => set('accountNumber', e.target.value)} placeholder="PK00XXXX0000000000000000" />
-                  </Field>
-                </div>
-                <Field label="Tax Number (NTN)">
-                  <input className={cn(inp, 'sm:w-1/2')} value={form.taxNumber} onChange={e => set('taxNumber', e.target.value)} placeholder="1234567-8" />
+                <Field label="Bank Account No.">
+                  <input className={inp} value={form.accountNumber ?? ''} onChange={e => set('accountNumber', e.target.value)} placeholder="02480320002393" />
                 </Field>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Field label="Character Certificate">
-                    <input className={inp} value={form.characterCertificate ?? ''} onChange={e => set('characterCertificate', e.target.value)} placeholder="Yes / No / Pending" />
-                  </Field>
-                  <Field label="Character Certificate Expiry">
-                    <input className={inp} type="date" value={form.characterCertificateExpiry ?? ''} onChange={e => set('characterCertificateExpiry', e.target.value)} />
-                  </Field>
-                </div>
-                <div className="border-t border-gray-100 pt-4 space-y-4">
-                  <Field label="Skills">
-                    <input className={inp} value={form.skills} onChange={e => set('skills', e.target.value)} placeholder="Dispatch, Call Handling, Customer Service..." />
-                  </Field>
-                  <Field label="Notes">
-                    <textarea className={cn(inp, 'resize-none')} rows={3} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any additional notes..." />
-                  </Field>
-                </div>
               </>
             )}
 
-            {/* ── Payroll ── */}
+            {/* ── 5. Payroll ── */}
             {tab === 'Payroll' && (
               <>
                 <div className="p-3 mb-2 bg-blue-50 rounded-lg text-xs text-blue-700">
@@ -352,7 +302,7 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
 
                 <Field label="Pay Type">
                   <select className={inp} value={form.payType ?? 'fixed_monthly'}
-                    onChange={e => set('payType', e.target.value as 'hourly' | 'fixed_monthly')}>
+                    onChange={e => set('payType', e.target.value)}>
                     <option value="fixed_monthly">Fixed Monthly Salary</option>
                     <option value="hourly">Hourly Rate</option>
                   </select>
@@ -362,7 +312,7 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                   <Field label="Hourly Rate (PKR)">
                     <input className={inp} type="number" min={0}
                       value={form.hourlyRate ?? ''}
-                      onChange={e => set('hourlyRate', e.target.value ? Number(e.target.value) : '')}
+                      onChange={e => set('hourlyRate', e.target.value ? Number(e.target.value) : undefined)}
                       placeholder="e.g. 500" />
                   </Field>
                 ) : (
@@ -370,7 +320,7 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                     <Field label="Monthly Salary (PKR)">
                       <input className={inp} type="number" min={0}
                         value={form.salary ?? ''}
-                        onChange={e => set('salary', e.target.value ? Number(e.target.value) : '')}
+                        onChange={e => set('salary', e.target.value ? Number(e.target.value) : undefined)}
                         placeholder="e.g. 60000" />
                     </Field>
                     <div className="grid sm:grid-cols-2 gap-4">
@@ -383,7 +333,7 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                       <Field label="Overtime Rate (PKR / hr)">
                         <input className={inp} type="number" min={0}
                           value={form.overtimeRate ?? ''}
-                          onChange={e => set('overtimeRate', e.target.value ? Number(e.target.value) : '')}
+                          onChange={e => set('overtimeRate', e.target.value ? Number(e.target.value) : undefined)}
                           placeholder="e.g. 400" />
                       </Field>
                     </div>
@@ -410,13 +360,13 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                     <Field label="Fuel Allowance (PKR / month)">
                       <input className={inp} type="number" min={0}
                         value={form.fuelAllowance ?? ''}
-                        onChange={e => set('fuelAllowance', e.target.value ? Number(e.target.value) : '')}
+                        onChange={e => set('fuelAllowance', e.target.value ? Number(e.target.value) : undefined)}
                         placeholder="e.g. 3000" />
                     </Field>
                     <Field label="Gym Allowance (PKR / month)">
                       <input className={inp} type="number" min={0}
                         value={form.gymAllowance ?? ''}
-                        onChange={e => set('gymAllowance', e.target.value ? Number(e.target.value) : '')}
+                        onChange={e => set('gymAllowance', e.target.value ? Number(e.target.value) : undefined)}
                         placeholder="e.g. 1500" />
                     </Field>
                   </div>
@@ -427,7 +377,7 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                   <Field label="Security Deduction (PKR / month)">
                     <input className={inp} type="number" min={0}
                       value={form.securityDeduction ?? ''}
-                      onChange={e => set('securityDeduction', e.target.value ? Number(e.target.value) : '')}
+                      onChange={e => set('securityDeduction', e.target.value ? Number(e.target.value) : undefined)}
                       placeholder="e.g. 2000" />
                   </Field>
                   <p className="text-[11px] text-gray-400">Security amounts are held as a deposit and refunded when the employee leaves.</p>

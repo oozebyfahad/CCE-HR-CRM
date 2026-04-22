@@ -11,7 +11,7 @@ function safeFormatDate(d?: string): string {
 }
 import { Avatar } from '../../components/common/Avatar'
 import { Badge, statusVariant } from '../../components/common/Badge'
-import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS, DEPARTMENT_COLORS } from '../../utils/constants'
+import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS, DEPARTMENT_COLORS, DEPARTMENTS as DEPARTMENTS_LIST } from '../../utils/constants'
 import { useFirebaseEmployees, type FirebaseEmployee } from '../../hooks/useFirebaseEmployees'
 import AddEditEmployeeModal    from './components/AddEditEmployeeModal'
 import DeleteConfirmModal      from './components/DeleteConfirmModal'
@@ -127,7 +127,7 @@ const statusDot: Record<string, string> = {
   resigned: '#9ca3af', terminated: '#ef4444',
 }
 
-const DEPARTMENTS  = ['All', 'Operations', 'Customer Service', 'Dispatch', 'Admin', 'Management', 'IT', 'HR', 'Finance', 'Marketing', 'QA']
+const DEPARTMENTS  = ['All', ...DEPARTMENTS_LIST]
 const EMP_TYPES    = ['All', ...Object.keys(EMPLOYMENT_TYPE_LABELS)]
 const STATUS_OPTS  = ['All', ...Object.keys(STATUS_LABELS)]
 
@@ -180,7 +180,7 @@ export default function EmployeeList() {
   const filtered = employees
     .filter(e => {
       // Team leads only see their own team members
-      if (isTeamLead && e.manager !== currentUser?.name) return false
+      if (isTeamLead && e.department !== currentUser?.department) return false
       const q = search.toLowerCase()
       const matchSearch  = !q || e.name.toLowerCase().includes(q) || e.employeeId.toLowerCase().includes(q) || e.email.toLowerCase().includes(q) || e.jobTitle?.toLowerCase().includes(q)
       const matchDept    = dept    === 'All' || e.department    === dept
@@ -357,7 +357,7 @@ export default function EmployeeList() {
             <div className="w-32 shrink-0 hidden md:block">
               <span className="flex items-center gap-1.5 text-xs text-gray-600">
                 <span className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: DEPARTMENT_COLORS[emp.department] ?? '#9ca3af' }} />
+                  style={{ backgroundColor: DEPARTMENT_COLORS[emp.department ?? ''] ?? '#9ca3af' }} />
                 {emp.department}
               </span>
             </div>

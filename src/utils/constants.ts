@@ -16,13 +16,30 @@ export const CHART_COLORS = {
   teal:     '#14B8A6',
 }
 
+export const DEPARTMENTS = [
+  'Operations',
+  'Dispatch',
+  'Management',
+  'QA',
+  'Admin',
+  'HR',
+  'Finance',
+  'IT',
+  'Customer Service',
+  'Marketing',
+]
+
 export const DEPARTMENT_COLORS: Record<string, string> = {
-  Operations:      '#2E86C1',
+  Operations:         '#2E86C1',
+  Dispatch:           '#F59E0B',
+  Management:         '#F97316',
+  QA:                 '#10B981',
+  Admin:              '#8B5CF6',
+  HR:                 '#EC4899',
+  Finance:            '#14B8A6',
+  IT:                 '#6366F1',
   'Customer Service': '#10B981',
-  Dispatch:        '#F59E0B',
-  Admin:           '#8B5CF6',
-  Management:      '#F97316',
-  IT:              '#14B8A6',
+  Marketing:          '#EF4444',
 }
 
 export const LEAVE_TYPE_LABELS: Record<string, string> = {
