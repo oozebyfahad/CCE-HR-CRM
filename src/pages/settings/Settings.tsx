@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { Save, Shield, Bell, Palette, Globe, Database, Users, Pencil, X, Send, Check, UserPlus, Eye, EyeOff, Building2 } from 'lucide-react'
+import { Save, Shield, Bell, Palette, Globe, Database, Users, Pencil, X, Send, Check, UserPlus, Eye, EyeOff, Building2, Link, RefreshCw, CheckCircle2, AlertCircle, Unlink } from 'lucide-react'
+import { doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
+import { fetchRotaUsers, rotaUserName, type RotaUser } from '../../services/rotacloud'
+import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
 import { createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth'
 import { auth, authSecondary, db } from '../../config/firebase'
-import { doc, setDoc } from 'firebase/firestore'
 import { useAppSelector } from '../../store'
 import { useFirebaseUsers, type FirebaseUser } from '../../hooks/useFirebaseUsers'
 import { cn } from '../../utils/cn'
@@ -18,6 +20,7 @@ const TABS = [
   { key: 'appearance',    label: 'Appearance',      Icon: Palette   },
   { key: 'data',          label: 'Data & GDPR',     Icon: Database  },
   { key: 'access',        label: 'Access Levels',   Icon: Users     },
+  { key: 'integrations',  label: 'Integrations',    Icon: Link      },
 ]
 
 const ROLE_OPTIONS: { value: UserRole; label: string; color: string }[] = [
@@ -433,6 +436,222 @@ function AccessLevels() {
   )
 }
 
+// ── RotaCloud Integration panel ─────────────────────────────────────────
+interface MatchResult {
+  rotaUser: RotaUser
+  firestoreId: string | null   // matched Firestore employee ID
+  firebaseName: string | null
+  method: 'email' | 'none'
+}
+
+function RotacloudPanel() {
+  const { employees } = useFirebaseEmployees()
+  const [status,    setStatus]    = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
+  const [syncing,   setSyncing]   = useState(false)
+  const [results,   setResults]   = useState<MatchResult[] | null>(null)
+  const [saving,    setSaving]    = useState(false)
+  const [saved,     setSaved]     = useState(false)
+  const [errorMsg,  setErrorMsg]  = useState('')
+
+  const testConnection = async () => {
+    setStatus('testing')
+    setErrorMsg('')
+    try {
+      const users = await fetchRotaUsers()
+      setStatus(Array.isArray(users) && users.length > 0 ? 'ok' : 'error')
+    } catch (e) {
+      setStatus('error')
+      setErrorMsg(e instanceof Error ? e.message : 'Connection failed')
+    }
+  }
+
+  const syncEmployees = async () => {
+    setSyncing(true)
+    setErrorMsg('')
+    setSaved(false)
+    try {
+      const rotaUsers = await fetchRotaUsers()
+      const active = rotaUsers.filter(u => !u.deleted)
+      const emailToFirestore: Record<string, { id: string; name: string }> = {}
+      employees.forEach(e => {
+        if (e.email) emailToFirestore[e.email.toLowerCase().trim()] = { id: e.id, name: e.name }
+      })
+
+      const matched: MatchResult[] = active.map(ru => {
+        const email = ru.email?.toLowerCase().trim() ?? ''
+        const match = emailToFirestore[email] ?? null
+        return {
+          rotaUser:     ru,
+          firestoreId:  match?.id   ?? null,
+          firebaseName: match?.name ?? null,
+          method:       match ? 'email' : 'none',
+        }
+      })
+      // Show unmatched last
+      matched.sort((a, b) => (a.firestoreId ? 0 : 1) - (b.firestoreId ? 0 : 1))
+      setResults(matched)
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : 'Sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const saveLinks = async () => {
+    if (!results) return
+    setSaving(true)
+    try {
+      const batch = writeBatch(db)
+      results.forEach(r => {
+        if (r.firestoreId) {
+          batch.update(doc(db, 'employees', r.firestoreId), { rotacloudId: r.rotaUser.id })
+        }
+      })
+      await batch.commit()
+      setSaved(true)
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const linked   = results?.filter(r => r.firestoreId).length ?? 0
+  const unlinked = results?.filter(r => !r.firestoreId).length ?? 0
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-sm font-semibold text-secondary">RotaCloud Integration</h3>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Connect your RotaCloud account to sync attendance, shifts, and employee records.
+          The API key is stored in Netlify environment variables — it never reaches the browser.
+        </p>
+      </div>
+
+      {/* Status banner */}
+      <div className={cn(
+        'rounded-xl px-4 py-3 flex items-start gap-3 text-sm',
+        status === 'ok'      ? 'bg-green-50 border border-green-200'  :
+        status === 'error'   ? 'bg-red-50 border border-red-200'      :
+        status === 'testing' ? 'bg-blue-50 border border-blue-200'    :
+        'bg-gray-50 border border-gray-200'
+      )}>
+        {status === 'ok'      && <CheckCircle2 size={16} className="text-green-600 shrink-0 mt-0.5" />}
+        {status === 'error'   && <AlertCircle  size={16} className="text-red-500   shrink-0 mt-0.5" />}
+        {status === 'testing' && <RefreshCw    size={16} className="text-blue-500  shrink-0 mt-0.5 animate-spin" />}
+        {status === 'idle'    && <Link         size={16} className="text-gray-400  shrink-0 mt-0.5" />}
+        <div className="flex-1">
+          <p className={cn('font-semibold text-xs',
+            status === 'ok'    ? 'text-green-700' :
+            status === 'error' ? 'text-red-600'   :
+            'text-gray-600'
+          )}>
+            {status === 'ok'      ? 'Connected to RotaCloud' :
+             status === 'error'   ? `Connection failed${errorMsg ? ` — ${errorMsg}` : ''}` :
+             status === 'testing' ? 'Testing connection…' :
+             'Not tested yet'}
+          </p>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            Set <code className="bg-gray-100 px-1 rounded">ROTACLOUD_API_KEY</code> in Netlify → Site Settings → Environment Variables, then redeploy.
+          </p>
+        </div>
+        <button
+          onClick={testConnection}
+          disabled={status === 'testing'}
+          className="shrink-0 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-white transition disabled:opacity-50 bg-white">
+          Test Connection
+        </button>
+      </div>
+
+      {/* Employee linking */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-secondary">Employee Linking</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Matches RotaCloud employees to your HR records by email so attendance data maps to the correct employee.
+            </p>
+          </div>
+          <button
+            onClick={syncEmployees}
+            disabled={syncing}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-secondary text-white text-xs font-semibold hover:bg-secondary/90 transition disabled:opacity-50">
+            <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
+            {syncing ? 'Fetching…' : 'Fetch & Match'}
+          </button>
+        </div>
+
+        {results && (
+          <>
+            {/* Summary */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'RotaCloud Staff', val: results.length,        color: 'text-secondary'   },
+                { label: 'Linked',          val: linked,                color: 'text-green-600'   },
+                { label: 'Unmatched',       val: unlinked,              color: 'text-amber-600'   },
+              ].map(s => (
+                <div key={s.label} className="bg-gray-50 rounded-xl p-3 text-center border border-gray-100">
+                  <p className={cn('text-2xl font-bold', s.color)}>{s.val}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Results table */}
+            <div className="border border-gray-100 rounded-xl overflow-hidden max-h-72 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="px-4 py-2.5 text-left font-bold text-gray-400 uppercase tracking-wide text-[10px]">RotaCloud Name</th>
+                    <th className="px-4 py-2.5 text-left font-bold text-gray-400 uppercase tracking-wide text-[10px]">Email</th>
+                    <th className="px-4 py-2.5 text-left font-bold text-gray-400 uppercase tracking-wide text-[10px]">HR Record</th>
+                    <th className="px-4 py-2.5 text-left font-bold text-gray-400 uppercase tracking-wide text-[10px]">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {results.map(r => (
+                    <tr key={r.rotaUser.id} className="hover:bg-gray-50/50 transition">
+                      <td className="px-4 py-2.5 font-medium text-secondary">{rotaUserName(r.rotaUser)}</td>
+                      <td className="px-4 py-2.5 text-gray-500 truncate max-w-[180px]">{r.rotaUser.email}</td>
+                      <td className="px-4 py-2.5 text-gray-600">{r.firebaseName ?? <span className="text-gray-300">—</span>}</td>
+                      <td className="px-4 py-2.5">
+                        {r.firestoreId ? (
+                          <span className="flex items-center gap-1 text-green-700 font-semibold">
+                            <CheckCircle2 size={11} /> Linked
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-amber-600 font-semibold">
+                            <Unlink size={11} /> No match
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {errorMsg && <p className="text-xs text-red-500">{errorMsg}</p>}
+
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-400">
+                Unmatched employees won't have attendance auto-filled in payroll. Ensure emails match in both systems.
+              </p>
+              <button
+                onClick={saveLinks}
+                disabled={saving || linked === 0}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition disabled:opacity-50">
+                {saved ? <><CheckCircle2 size={13} /> Saved!</> : <><Save size={13} /> Save {linked} Links</>}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Settings page ──────────────────────────────────────────────────
 export default function Settings() {
   const [tab, setTab] = useState('general')
@@ -575,9 +794,10 @@ export default function Settings() {
             </div>
           )}
 
-          {tab === 'access' && <AccessLevels />}
+          {tab === 'access'        && <AccessLevels />}
+          {tab === 'integrations'  && <RotacloudPanel />}
 
-          {tab !== 'access' && (
+          {tab !== 'access' && tab !== 'integrations' && (
             <div className="pt-2 flex justify-end">
               <button className="btn-primary text-sm gap-2"><Save size={14} /> Save Changes</button>
             </div>

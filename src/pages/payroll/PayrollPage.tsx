@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Plus, ChevronRight, Check, Clock, Banknote,
-  Wallet, Users, AlertCircle, X, DollarSign, Download,
+  Wallet, Users, AlertCircle, X, DollarSign, Download, RefreshCw,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
@@ -11,6 +11,7 @@ import { useAppSelector } from '../../store'
 import { fmtPKR, PAY_TYPE_LABELS } from '../../utils/payroll'
 import PayslipModal from './components/PayslipModal'
 import { cn } from '../../utils/cn'
+import { fetchRotaAttendance, monthToUnix, sumHoursByUser } from '../../services/rotacloud'
 
 type PageTab = 'Runs' | 'Advances' | 'Loans'
 
@@ -44,6 +45,44 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [hoursMap,       setHoursMap]       = useState<Record<string, string>>({})
   const [qaMap,          setQaMap]          = useState<Record<string, string>>({})
   const [punctualityMap, setPunctualityMap] = useState<Record<string, string>>({})
+
+  // RotaCloud hours import
+  const [rotaImporting, setRotaImporting] = useState(false)
+  const [rotaStatus,    setRotaStatus]    = useState<{ matched: number; total: number } | null>(null)
+  const [rotaError,     setRotaError]     = useState('')
+
+  const importFromRotacloud = async () => {
+    setRotaImporting(true)
+    setRotaError('')
+    setRotaStatus(null)
+    try {
+      const { start, end } = monthToUnix(month)
+      const records = await fetchRotaAttendance(start, end)
+      const byRotaId = sumHoursByUser(records)
+
+      // Build rotacloudId → Firestore employee ID lookup
+      const rotaToFirestore: Record<number, string> = {}
+      employees.forEach(e => {
+        if (e.rotacloudId) rotaToFirestore[e.rotacloudId] = e.id
+      })
+
+      const newHours: Record<string, string> = { ...hoursMap }
+      let matched = 0
+      Object.entries(byRotaId).forEach(([rotaIdStr, hrs]) => {
+        const firestoreId = rotaToFirestore[Number(rotaIdStr)]
+        if (firestoreId) {
+          newHours[firestoreId] = String(Math.round(hrs * 100) / 100)
+          matched++
+        }
+      })
+      setHoursMap(newHours)
+      setRotaStatus({ matched, total: Object.keys(byRotaId).length })
+    } catch (e) {
+      setRotaError(e instanceof Error ? e.message : 'Import failed')
+    } finally {
+      setRotaImporting(false)
+    }
+  }
 
   const hourly = active.filter(e => e.payType === 'hourly')
   const fixed  = active.filter(e => e.payType !== 'hourly')
@@ -110,8 +149,40 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Payroll Month</label>
-                <input type="month" className={inp} value={month} onChange={e => setMonth(e.target.value)} />
+                <input type="month" className={inp} value={month} onChange={e => { setMonth(e.target.value); setRotaStatus(null) }} />
               </div>
+
+              {/* RotaCloud import */}
+              <div className="border border-dashed border-primary/30 rounded-xl p-4 space-y-3 bg-primary/5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-secondary">Import Hours from RotaCloud</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">Pulls approved attendance hours for this month and pre-fills each employee's hours.</p>
+                  </div>
+                  <button
+                    onClick={importFromRotacloud}
+                    disabled={rotaImporting || !month}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary text-white text-xs font-semibold hover:bg-secondary/90 transition disabled:opacity-50 shrink-0">
+                    <RefreshCw size={12} className={rotaImporting ? 'animate-spin' : ''} />
+                    {rotaImporting ? 'Importing…' : 'Import'}
+                  </button>
+                </div>
+                {rotaStatus && (
+                  <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                    <Check size={13} className="text-green-600" />
+                    Imported hours for <strong>{rotaStatus.matched}</strong> of {rotaStatus.total} RotaCloud employees.
+                    {rotaStatus.matched < rotaStatus.total && (
+                      <span className="text-amber-600"> Unmatched employees need linking in Settings → Integrations.</span>
+                    )}
+                  </div>
+                )}
+                {rotaError && (
+                  <p className="text-xs text-red-500 flex items-center gap-1">
+                    <AlertCircle size={12} /> {rotaError}
+                  </p>
+                )}
+              </div>
+
               <div className="bg-blue-50 rounded-xl p-3 text-xs text-blue-700 flex items-start gap-2">
                 <Users size={14} className="shrink-0 mt-0.5" />
                 <div className="space-y-1">

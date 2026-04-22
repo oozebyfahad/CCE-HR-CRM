@@ -74,6 +74,8 @@ export interface FirebaseEmployee {
   // Profile photo (stored as resized base64 data URL)
   photoUrl?: string
   photoApproved?: boolean
+  // RotaCloud integration
+  rotacloudId?: number
 }
 
 export function useFirebaseEmployees() {
