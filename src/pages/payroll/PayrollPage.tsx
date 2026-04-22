@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import {
   Plus, ChevronRight, Check, Clock, Banknote,
-  Wallet, Users, AlertCircle, X, DollarSign,
+  Wallet, Users, AlertCircle, X, DollarSign, Download,
 } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
 import { useFirebasePayroll, type PayrollRun, type PayrollEntry } from '../../hooks/useFirebasePayroll'
 import { useFirebaseAdvances, useFirebaseLoans } from '../../hooks/useFirebaseAdvances'
@@ -331,6 +332,61 @@ function RunDetail({ run, onBack }: { run: PayrollRun; onBack: () => void }) {
     onBack()
   }
 
+  const handleDownload = () => {
+    const wb = XLSX.utils.book_new()
+
+    // ── Summary sheet ──────────────────────────────────────────────
+    const summaryRows = [
+      ['CabCall Experts — Payroll Run'],
+      [run.label],
+      [],
+      ['Status',          run.status.toUpperCase()],
+      ['Headcount',       run.headcount],
+      ['Gross Payroll',   run.totalGross],
+      ['Withholding Tax', run.totalTax],
+      ['EOBI (Employee)', run.totalEobi],
+      ['Net Payroll',     run.totalNet],
+      ...(run.approvedBy ? [['Approved By', run.approvedBy]] : []),
+    ]
+    const summaryWs = XLSX.utils.aoa_to_sheet(summaryRows)
+    summaryWs['!cols'] = [{ wch: 22 }, { wch: 20 }]
+    XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary')
+
+    // ── Detail sheet ───────────────────────────────────────────────
+    const headers = [
+      'Employee', 'Department', 'Pay Type', 'Hours Worked',
+      'Basic Pay', 'Overtime Pay', 'OT Hours',
+      'Paid Holiday Pay', 'Eid Pay',
+      'Fuel Allowance', 'Gym Allowance',
+      'QA Bonus', 'Punctuality Bonus', 'Other Additions',
+      'Gross Pay',
+      'Withholding Tax', 'EOBI (Emp)', 'Advance Repay',
+      'Loan Repay', 'Security Deduction', 'Other Deductions',
+      'Total Deductions', 'Net Pay',
+    ]
+    const rows = entries.map(e => {
+      const r = e.result
+      return [
+        e.employeeName, e.department,
+        e.payType === 'hourly' ? 'Hourly' : 'Fixed Monthly',
+        e.hoursWorked,
+        r.basicPay, r.overtimePay, r.overtimeHours,
+        r.paidHolidayPay, r.eidPay,
+        r.fuelAllowance, r.gymAllowance,
+        r.qualityBonus, r.punctualityBonus, r.otherAdditions,
+        r.grossPay,
+        r.withholdingTax, r.eobiEmployee, r.advanceRepay,
+        r.loanRepay, r.securityDeduction, r.otherDeductions,
+        r.totalDeductions, r.netPay,
+      ]
+    })
+    const detailWs = XLSX.utils.aoa_to_sheet([headers, ...rows])
+    detailWs['!cols'] = headers.map((h, i) => ({ wch: i === 0 ? 28 : i === 1 ? 18 : 14 }))
+    XLSX.utils.book_append_sheet(wb, detailWs, 'Payroll Detail')
+
+    XLSX.writeFile(wb, `CCE_Payroll_${run.month}_${run.status}.xlsx`)
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
@@ -381,6 +437,12 @@ function RunDetail({ run, onBack }: { run: PayrollRun; onBack: () => void }) {
             <button onClick={handlePaid} disabled={working}
               className="btn-primary text-xs px-4 flex items-center gap-1.5 disabled:opacity-50">
               <Banknote size={13} /> Mark as Paid
+            </button>
+          )}
+          {(run.status === 'approved' || run.status === 'paid') && loaded && (
+            <button onClick={handleDownload}
+              className="btn-outline text-xs px-4 flex items-center gap-1.5 text-green-700 border-green-300 hover:bg-green-50">
+              <Download size={13} /> Download Excel
             </button>
           )}
         </div>
