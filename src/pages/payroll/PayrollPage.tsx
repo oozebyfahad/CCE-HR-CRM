@@ -33,15 +33,25 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
 
   const today = new Date()
   const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2,'0')}`
+  const [step,    setStep]    = useState<1 | 2>(1)
   const [month,   setMonth]   = useState(defaultMonth)
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState('')
 
+  // Per-employee hours map: employeeId → hoursWorked
+  const active = employees.filter(e => e.status === 'active')
+  const [hoursMap, setHoursMap] = useState<Record<string, string>>({})
+
+  const hourly  = active.filter(e => e.payType === 'hourly')
+  const fixed   = active.filter(e => e.payType !== 'hourly')
+
+  function setHours(id: string, val: string) {
+    setHoursMap(m => ({ ...m, [id]: val }))
+  }
+
   const handleCreate = async () => {
-    if (!month) { setError('Please select a month.'); return }
     setSaving(true)
     try {
-      // Build deduction maps from active advances/loans
       const advMap: Record<string, number> = {}
       const loanMap: Record<string, number> = {}
       advances.filter(a => a.status === 'repaying').forEach(a => {
@@ -50,7 +60,13 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
       loans.filter(l => l.status === 'repaying').forEach(l => {
         loanMap[l.employeeId] = (loanMap[l.employeeId] ?? 0) + l.monthlyInstalment
       })
-      const id = await createRun(month, employees, {}, advMap, loanMap, {}, {}, {}, {}, {})
+      // Convert string inputs to numbers
+      const numericHours: Record<string, number> = {}
+      Object.entries(hoursMap).forEach(([id, v]) => {
+        const n = parseFloat(v)
+        if (!isNaN(n) && n > 0) numericHours[id] = n
+      })
+      const id = await createRun(month, employees, numericHours, advMap, loanMap, {}, {}, {}, {}, {})
       onCreated(id)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to create run.')
@@ -59,38 +75,196 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
     }
   }
 
-  const activeCount = employees.filter(e => e.status === 'active').length
+  const thCls = 'text-left px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wide whitespace-nowrap'
+  const tdCls = 'px-3 py-2 text-sm'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <p className="text-sm font-bold text-secondary">New Payroll Run</p>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+          <div>
+            <p className="text-sm font-bold text-secondary">New Payroll Run</p>
+            <p className="text-xs text-gray-400 mt-0.5">Step {step} of 2 — {step === 1 ? 'Select month' : 'Enter hours worked'}</p>
+          </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400">
             <X size={15} />
           </button>
         </div>
-        <div className="p-6 space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Month</label>
-            <input type="month" className={inp} value={month} onChange={e => setMonth(e.target.value)} />
-          </div>
-          <div className="bg-blue-50 rounded-xl p-3 text-xs text-blue-700 flex items-start gap-2">
-            <Users size={14} className="shrink-0 mt-0.5" />
-            <span>
-              This will generate payslips for <strong>{activeCount} active employees</strong>.
-              Hours worked will default to 0 — you can edit individual entries after creation.
-              Active advance and loan deductions will be applied automatically.
-            </span>
-          </div>
-          {error && <p className="text-xs text-red-600">{error}</p>}
+
+        <div className="flex-1 overflow-y-auto">
+
+          {/* ── Step 1: Month ── */}
+          {step === 1 && (
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Payroll Month</label>
+                <input type="month" className={inp} value={month} onChange={e => setMonth(e.target.value)} />
+              </div>
+              <div className="bg-blue-50 rounded-xl p-3 text-xs text-blue-700 flex items-start gap-2">
+                <Users size={14} className="shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p><strong>{active.length} active employees</strong> will be included.</p>
+                  <p><span className="font-semibold">{hourly.length} hourly</span> — paid per hour worked (dispatchers, staff).</p>
+                  <p><span className="font-semibold">{fixed.length} fixed monthly</span> — fixed salary + overtime if hours exceed threshold (managers).</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 2: Hours per employee ── */}
+          {step === 2 && (
+            <div className="p-6 space-y-6">
+
+              {/* Hourly employees */}
+              {hourly.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Clock size={14} className="text-amber-500" />
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Hourly Employees — enter actual hours worked this month</p>
+                  </div>
+                  <div className="border border-gray-100 rounded-xl overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className={thCls}>Employee</th>
+                          <th className={thCls}>Job Title</th>
+                          <th className={thCls}>Rate (PKR/hr)</th>
+                          <th className={thCls}>Hours Worked</th>
+                          <th className={thCls}>Est. Basic Pay</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {hourly.map(emp => {
+                          const hrs = parseFloat(hoursMap[emp.id] ?? '') || 0
+                          const est = Math.round((emp.hourlyRate ?? 0) * hrs)
+                          return (
+                            <tr key={emp.id} className="hover:bg-gray-50/50">
+                              <td className={tdCls}>
+                                <p className="font-medium text-gray-900">{emp.name}</p>
+                                <p className="text-xs text-gray-400">{emp.employeeId}</p>
+                              </td>
+                              <td className={`${tdCls} text-gray-500`}>{emp.jobTitle}</td>
+                              <td className={`${tdCls} font-medium text-gray-700`}>
+                                {emp.hourlyRate ? `PKR ${emp.hourlyRate.toLocaleString()}` : <span className="text-red-400 text-xs">Not set</span>}
+                              </td>
+                              <td className={tdCls}>
+                                <input
+                                  type="number" min={0} step={0.5}
+                                  placeholder="0"
+                                  value={hoursMap[emp.id] ?? ''}
+                                  onChange={e => setHours(emp.id, e.target.value)}
+                                  className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                                />
+                              </td>
+                              <td className={tdCls}>
+                                <span className={hrs > 0 ? 'font-semibold text-green-600' : 'text-gray-300'}>
+                                  {hrs > 0 ? `PKR ${est.toLocaleString()}` : '—'}
+                                </span>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Fixed monthly / managers */}
+              {fixed.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Banknote size={14} className="text-primary" />
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Fixed Monthly (Managers) — enter hours to calculate overtime</p>
+                  </div>
+                  <div className="border border-gray-100 rounded-xl overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className={thCls}>Employee</th>
+                          <th className={thCls}>Fixed Salary</th>
+                          <th className={thCls}>Threshold</th>
+                          <th className={thCls}>OT Rate (PKR/hr)</th>
+                          <th className={thCls}>Hours Worked</th>
+                          <th className={thCls}>OT Hours</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {fixed.map(emp => {
+                          const hrs       = parseFloat(hoursMap[emp.id] ?? '') || 0
+                          const threshold = emp.monthlyHours ?? 160
+                          const otHrs     = Math.max(0, hrs - threshold)
+                          const otPay     = Math.round(otHrs * (emp.overtimeRate ?? 0))
+                          return (
+                            <tr key={emp.id} className="hover:bg-gray-50/50">
+                              <td className={tdCls}>
+                                <p className="font-medium text-gray-900">{emp.name}</p>
+                                <p className="text-xs text-gray-400">{emp.jobTitle}</p>
+                              </td>
+                              <td className={`${tdCls} font-medium text-gray-700`}>
+                                {emp.salary ? `PKR ${emp.salary.toLocaleString()}` : <span className="text-red-400 text-xs">Not set</span>}
+                              </td>
+                              <td className={`${tdCls} text-gray-500`}>{threshold} hrs</td>
+                              <td className={`${tdCls} text-gray-700`}>
+                                {emp.overtimeRate
+                                  ? `PKR ${emp.overtimeRate.toLocaleString()}`
+                                  : <span className="text-gray-300 text-xs">None</span>}
+                              </td>
+                              <td className={tdCls}>
+                                <input
+                                  type="number" min={0} step={0.5}
+                                  placeholder={String(threshold)}
+                                  value={hoursMap[emp.id] ?? ''}
+                                  onChange={e => setHours(emp.id, e.target.value)}
+                                  className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                                />
+                              </td>
+                              <td className={tdCls}>
+                                {otHrs > 0 ? (
+                                  <span className="text-purple-600 font-semibold">
+                                    {otHrs}h → +PKR {otPay.toLocaleString()}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300 text-xs">No OT</span>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-2">
+                    Overtime only applies when hours exceed the threshold. Each manager's OT rate is set individually on their employee profile.
+                  </p>
+                </div>
+              )}
+
+              {error && <p className="text-xs text-red-600">{error}</p>}
+            </div>
+          )}
         </div>
-        <div className="px-6 pb-6 flex gap-2 justify-end">
-          <button onClick={onClose} className="btn-outline text-sm px-4">Cancel</button>
-          <button onClick={handleCreate} disabled={saving} className="btn-primary text-sm px-6 disabled:opacity-50">
-            {saving ? 'Creating…' : 'Create Run'}
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between shrink-0 bg-gray-50/50">
+          <button onClick={step === 1 ? onClose : () => setStep(1)} className="btn-outline text-sm px-4">
+            {step === 1 ? 'Cancel' : '← Back'}
           </button>
+          {step === 1 ? (
+            <button onClick={() => { if (month) setStep(2); else setError('Select a month first.') }}
+              className="btn-primary text-sm px-6 flex items-center gap-2">
+              Next: Enter Hours <ChevronRight size={14} />
+            </button>
+          ) : (
+            <button onClick={handleCreate} disabled={saving}
+              className="btn-primary text-sm px-6 disabled:opacity-50">
+              {saving ? 'Creating…' : `Create Run for ${active.length} Employees`}
+            </button>
+          )}
         </div>
+
       </div>
     </div>
   )
@@ -98,7 +272,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
 
 // ── Run Detail ────────────────────────────────────────────────────────
 function RunDetail({ run, onBack }: { run: PayrollRun; onBack: () => void }) {
-  const { getEntries, approveRun, markPaid, deleteRun, updateEntry } = useFirebasePayroll()
+  const { getEntries, approveRun, markPaid, deleteRun } = useFirebasePayroll()
   const currentUser = useAppSelector(s => s.auth.user)
   const [entries,  setEntries]  = useState<PayrollEntry[]>([])
   const [loaded,   setLoaded]   = useState(false)
@@ -251,7 +425,7 @@ function AdvancesTab() {
     if (!emp || !amount || !deduct) return
     setSaving(true)
     await requestAdvance({
-      employeeId: emp.id, employeeName: emp.name, department: emp.department,
+      employeeId: emp.id, employeeName: emp.name, department: emp.department ?? '',
       amount: Number(amount), monthlyDeduct: Number(deduct), reason,
     })
     setSaving(false)
@@ -367,7 +541,7 @@ function LoansTab() {
     if (!emp || !amount || !instalments) return
     setSaving(true)
     await requestLoan({
-      employeeId: emp.id, employeeName: emp.name, department: emp.department,
+      employeeId: emp.id, employeeName: emp.name, department: emp.department ?? '',
       amount: Number(amount), totalInstalments: Number(instalments),
       monthlyInstalment: instalment, purpose,
     })
