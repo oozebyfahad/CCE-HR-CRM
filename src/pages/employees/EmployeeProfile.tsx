@@ -4,14 +4,14 @@ import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import {
   ArrowLeft, Download, Pencil, Mail, Phone, MapPin, Calendar,
-  Building2, User, Briefcase, ChevronDown, FileText,
+  Building2, Briefcase, ChevronDown, FileText,
   ShieldCheck, Heart, GraduationCap, Package, Plus, Send,
   Target, MessageSquare, ClipboardList, Info, Search,
 } from 'lucide-react'
 import { Badge, statusVariant } from '../../components/common/Badge'
-import { CurrencySelector } from '../../components/common/CurrencySelector'
 import { useCurrency } from '../../context/CurrencyContext'
 import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS } from '../../utils/constants'
+import { PAY_TYPE_LABELS } from '../../utils/payroll'
 import type { FirebaseEmployee } from '../../hooks/useFirebaseEmployees'
 import { exportSingleEmployee } from '../../utils/exportExcel'
 import AddEditEmployeeModal from './components/AddEditEmployeeModal'
@@ -155,7 +155,8 @@ export default function EmployeeProfile() {
 
   const handleUpdate = async (data: Omit<FirebaseEmployee, 'id'>) => {
     if (!id) return
-    await updateDoc(doc(db, 'employees', id), { ...data, updatedAt: serverTimestamp() })
+    const clean = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined && v !== null))
+    await updateDoc(doc(db, 'employees', id), { ...clean, updatedAt: serverTimestamp() })
     setEditing(false)
   }
 
@@ -245,19 +246,6 @@ export default function EmployeeProfile() {
             {emp.phone          && <VitalItem icon={Phone}   value={emp.phone} />}
             {emp.email          && <VitalItem icon={Mail}    value={emp.email} />}
             {emp.currentAddress && <VitalItem icon={MapPin}  value={emp.currentAddress} />}
-            {emp.linkedinUrl && (
-              <a
-                href={emp.linkedinUrl.startsWith('http') ? emp.linkedinUrl : `https://${emp.linkedinUrl}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2.5 group"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="#0A66C2" className="shrink-0 mt-0.5">
-                  <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-                </svg>
-                <span className="text-xs text-[#0A66C2] group-hover:underline truncate leading-relaxed">LinkedIn Profile</span>
-              </a>
-            )}
           </div>
 
           <div className="card p-4 space-y-3">
@@ -268,8 +256,7 @@ export default function EmployeeProfile() {
             {([
               ['Type',       EMPLOYMENT_TYPE_LABELS[emp.employmentType] ?? emp.employmentType],
               ['Department', emp.department],
-              emp.project     ? ['Project',  emp.project]     : null,
-              emp.workLocation ? ['Location', emp.workLocation] : null,
+              emp.project ? ['Project', emp.project] : null,
             ] as ([string,string] | null)[]).filter((x): x is [string,string] => x !== null).map(([k, v]) => (
               <div key={k}>
                 <p className="text-[9px] text-gray-400 uppercase tracking-wide">{k}</p>
@@ -286,20 +273,6 @@ export default function EmployeeProfile() {
             <p className="text-sm font-bold text-secondary">{fmt(emp.startDate)}</p>
           </div>
 
-          {emp.manager && (
-            <div className="card p-4">
-              <div className="flex items-center gap-1.5 mb-2">
-                <User size={11} className="text-gray-400" />
-                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Manager</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] font-bold shrink-0">
-                  {emp.manager.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                </div>
-                <p className="text-xs font-semibold text-secondary leading-tight">{emp.manager}</p>
-              </div>
-            </div>
-          )}
 
           <div className="card p-4">
             <div className="flex items-center gap-1.5 mb-2">
@@ -325,13 +298,16 @@ export default function EmployeeProfile() {
                   ['CNIC / National ID',     emp.cnic],
                   ['Marital Status',         emp.maritalStatus],
                   ['Religion',               emp.religion],
-                  ['Pseudonym / Alias',      emp.pseudonym],
                 ]} />
               </SectionCard>
               <SectionCard title="Family Information">
                 <InfoTable rows={[
                   ['Father / Husband Name',  emp.fatherHusbandName],
                   ['Mother Name',            emp.motherName],
+                  ['Name of Kin',            emp.emergencyContactName],
+                  ['Kin Contact',            emp.emergencyContactPhone],
+                  ['Relationship',           emp.emergencyContactRelation],
+                  ['Type of Contact',        emp.emergencyContactType],
                 ]} />
               </SectionCard>
               <SectionCard title="Address">
@@ -364,14 +340,12 @@ export default function EmployeeProfile() {
               </SectionCard>
               <SectionCard title="Job Information">
                 <DataTable
-                  cols={['Effective Date','Location','Department','Project / Client','Job Title','Reports To']}
+                  cols={['Effective Date','Department','Project / Client','Job Title']}
                   rows={[[
                     fmtShort(emp.startDate),
-                    emp.workLocation || '—',
-                    emp.department,
+                    emp.department || '—',
                     emp.project || '—',
                     <span className="font-semibold">{emp.jobTitle}</span>,
-                    emp.manager ? <span className="text-primary font-medium">{emp.manager}</span> : '—',
                   ]]}
                 />
               </SectionCard>
@@ -384,7 +358,7 @@ export default function EmployeeProfile() {
               {emp.salary && (
                 <SectionCard title="Compensation">
                   <DataTable
-                    cols={['Effective Date','Annual Salary','Type']}
+                    cols={['Effective Date','Monthly Salary','Type']}
                     rows={[[
                       fmtShort(emp.startDate),
                       <span className="font-bold text-secondary text-sm">{fmtCurrency(emp.salary)}</span>,
@@ -438,25 +412,25 @@ export default function EmployeeProfile() {
             <>
               {emp.salary && (
                 <div className="card p-6">
-                  <div className="flex items-start justify-between mb-1">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Annual Salary</p>
-                    <CurrencySelector />
+                  <div className="mb-1">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Monthly Salary</p>
                   </div>
                   <p className="text-4xl font-bold text-secondary mt-2">{fmtCurrency(emp.salary)}</p>
                   <p className="text-xs text-gray-400 mt-1">{EMPLOYMENT_TYPE_LABELS[emp.employmentType] ?? emp.employmentType}</p>
                 </div>
               )}
-              <SectionCard title="Banking Details">
+              <SectionCard title="Pay Information">
                 <InfoTable rows={[
-                  ['Bank Name',                    emp.bankName],
-                  ['Account / IBAN',               emp.accountNumber],
-                  ['Tax Number (NTN)',              emp.taxNumber],
+                  ['Pay Type',               emp.payType ? (PAY_TYPE_LABELS[emp.payType] ?? emp.payType) : undefined],
+                  ['Monthly Salary (PKR)',    emp.salary != null ? `PKR ${emp.salary.toLocaleString()}` : undefined],
+                  ['Monthly Hours Threshold', emp.monthlyHours != null ? `${emp.monthlyHours} hrs` : undefined],
+                  ['Overtime Rate (PKR / hr)',emp.overtimeRate != null ? `PKR ${emp.overtimeRate.toLocaleString()}` : undefined],
+                  ['Hourly Rate (PKR / hr)',  emp.hourlyRate != null ? `PKR ${emp.hourlyRate.toLocaleString()}` : undefined],
                 ]} />
               </SectionCard>
-              <SectionCard title="Documents">
+              <SectionCard title="Banking Details">
                 <InfoTable rows={[
-                  ['Character Certificate',        emp.characterCertificate],
-                  ['Certificate Expiry',           emp.characterCertificateExpiry ? fmt(emp.characterCertificateExpiry) : undefined],
+                  ['Account / IBAN', emp.accountNumber],
                 ]} />
               </SectionCard>
             </>
@@ -470,6 +444,11 @@ export default function EmployeeProfile() {
               </SectionCard>
               <SectionCard title="Identity & Compliance">
                 <Empty icon={ShieldCheck} label="No compliance documents on record." />
+              </SectionCard>
+              <SectionCard title="Character Certificate">
+                <InfoTable rows={[
+                  ['Character Certificate Expiry', emp.characterCertificateExpiry ? fmt(emp.characterCertificateExpiry) : undefined],
+                ]} />
               </SectionCard>
             </>
           )}
@@ -605,7 +584,7 @@ export default function EmployeeProfile() {
                     <div className="space-y-3">
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Waiting for feedback from…</p>
                       {[
-                        { name: emp.manager || 'Line Manager', role: 'Manager',   sent: 'Mon, 21 Oct 2024', due: 'Tue, 5 Nov 2024 (14 days)' },
+                        { name: 'Line Manager', role: 'Manager',   sent: 'Mon, 21 Oct 2024', due: 'Tue, 5 Nov 2024 (14 days)' },
                         { name: 'Team Colleague',              role: 'Peer',      sent: 'Mon, 21 Oct 2024', due: 'Tue, 5 Nov 2024 (14 days)' },
                       ].map(r => (
                         <div key={r.name} className="flex items-start justify-between gap-4 border border-gray-100 rounded-xl p-4">
@@ -688,7 +667,7 @@ export default function EmployeeProfile() {
                         <div className="bg-gray-50/80 px-4 py-3 border-b border-gray-100">
                           <p className="text-sm font-bold text-secondary">Manager Assessment</p>
                           <p className="text-[11px] text-gray-400 mt-0.5">
-                            Completed {fmt(emp.startDate)} · by {emp.manager || 'Manager'}
+                            Completed {fmt(emp.startDate)} · by Manager
                           </p>
                         </div>
                         <div className="p-4 space-y-4">
@@ -734,7 +713,7 @@ export default function EmployeeProfile() {
                   rows={[
                     ['Health Insurance', 'Standard Plan', 'Employee + Family', fmtShort(emp.startDate), <Badge variant="success" size="xs" dot>Active</Badge>],
                     ['Pension / 401k',   '5% Contribution', 'Employee Match',  fmtShort(emp.startDate), <Badge variant="success" size="xs" dot>Active</Badge>],
-                    ['Life Insurance',   '2× Annual Salary','Employee',         fmtShort(emp.startDate), <Badge variant="success" size="xs" dot>Active</Badge>],
+                    ['Life Insurance',   '2× Monthly Salary','Employee',         fmtShort(emp.startDate), <Badge variant="success" size="xs" dot>Active</Badge>],
                   ]}
                 />
               </SectionCard>
@@ -808,29 +787,9 @@ export default function EmployeeProfile() {
             </>
           )}
 
-          {/* ── Notes (More) ── */}
+          {/* ── Notes ── */}
           {tab === 'Notes' && (
-            <>
-              {emp.skills && (
-                <SectionCard title="Skills">
-                  <div className="px-6 py-4 flex flex-wrap gap-2">
-                    {emp.skills.split(',').map(s => s.trim()).filter(Boolean).map(s => (
-                      <span key={s} className="px-3 py-1.5 bg-primary/10 text-primary text-xs font-semibold rounded-full">{s}</span>
-                    ))}
-                  </div>
-                </SectionCard>
-              )}
-              {emp.notes && (
-                <SectionCard title="Notes">
-                  <div className="px-6 py-4">
-                    <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{emp.notes}</p>
-                  </div>
-                </SectionCard>
-              )}
-              {!emp.skills && !emp.notes && (
-                <div className="card p-12 text-center text-gray-400 text-sm">No notes or skills on record.</div>
-              )}
-            </>
+            <div className="card p-12 text-center text-gray-400 text-sm">No notes on record.</div>
           )}
 
         </div>

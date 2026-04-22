@@ -28,16 +28,11 @@ const Ctx = createContext<CurrencyCtx>({
   fmt:         n  => `Rs ${Math.round(n).toLocaleString()}`,
 })
 
-const STORAGE_KEY = 'cce_currency'
-
 export function CurrencyProvider({ children }: { children: ReactNode }) {
-  const saved = (typeof localStorage !== 'undefined' && localStorage.getItem(STORAGE_KEY)) as CurrencyCode | null
-  const initial = CURRENCIES.find(c => c.code === saved) ?? CURRENCIES[0]
-  const [currency, setCurrencyState] = useState<CurrencyOption>(initial)
+  const [currency, setCurrencyState] = useState<CurrencyOption>(CURRENCIES[0])
 
   const setCurrency = (code: CurrencyCode) => {
     const opt = CURRENCIES.find(c => c.code === code) ?? CURRENCIES[0]
-    localStorage.setItem(STORAGE_KEY, code)
     setCurrencyState(opt)
   }
 
