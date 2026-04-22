@@ -296,15 +296,88 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   )
 }
 
+// ── Two-step Delete Confirmation Modal ───────────────────────────────
+function DeleteConfirmModal({
+  run, onCancel, onConfirmed,
+}: { run: PayrollRun; onCancel: () => void; onConfirmed: () => void }) {
+  const [step, setStep] = useState<1 | 2>(1)
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
+          <div className="w-9 h-9 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+            <AlertCircle size={18} className="text-red-600" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-gray-900">
+              {step === 1 ? 'Delete Payroll Run?' : 'Final Confirmation'}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">Step {step} of 2</p>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-3">
+          {step === 1 ? (
+            <>
+              <p className="text-sm text-gray-700">
+                You are about to delete the <span className="font-semibold">{run.label}</span> payroll run.
+              </p>
+              <div className="bg-gray-50 rounded-xl p-3 text-xs space-y-1.5">
+                <div className="flex justify-between"><span className="text-gray-500">Status</span><span className="font-semibold capitalize">{run.status}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Headcount</span><span className="font-semibold">{run.headcount} employees</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Net Payroll</span><span className="font-semibold">{fmtPKR(run.totalNet)}</span></div>
+              </div>
+              <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                All payslip entries for this run will also be deleted.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-gray-700">
+                This action is <span className="font-semibold text-red-600">permanent and cannot be undone.</span>
+              </p>
+              <p className="text-sm text-gray-600">
+                Are you absolutely sure you want to permanently delete the <span className="font-semibold">{run.label}</span> run?
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 pb-6 flex gap-2 justify-end">
+          <button onClick={onCancel}
+            className="btn-outline text-sm px-4">
+            Cancel
+          </button>
+          {step === 1 ? (
+            <button onClick={() => setStep(2)}
+              className="text-sm px-4 py-2 rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 font-semibold transition-colors">
+              Yes, Delete →
+            </button>
+          ) : (
+            <button onClick={onConfirmed}
+              className="text-sm px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 font-semibold transition-colors">
+              Permanently Delete
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Run Detail ────────────────────────────────────────────────────────
 function RunDetail({ run, onBack }: { run: PayrollRun; onBack: () => void }) {
   const { getEntries, approveRun, markPaid, deleteRun } = useFirebasePayroll()
   const currentUser = useAppSelector(s => s.auth.user)
-  const [entries,  setEntries]  = useState<PayrollEntry[]>([])
-  const [loaded,   setLoaded]   = useState(false)
-  const [payslip,  setPayslip]  = useState<PayrollEntry | null>(null)
-  const [working,  setWorking]  = useState(false)
-  const [search,   setSearch]   = useState('')
+  const [entries,      setEntries]      = useState<PayrollEntry[]>([])
+  const [loaded,       setLoaded]       = useState(false)
+  const [payslip,      setPayslip]      = useState<PayrollEntry | null>(null)
+  const [working,      setWorking]      = useState(false)
+  const [search,       setSearch]       = useState('')
+  const [showDeleteDlg, setShowDeleteDlg] = useState(false)
 
   useState(() => {
     getEntries(run.id).then(e => { setEntries(e); setLoaded(true) })
@@ -326,7 +399,6 @@ function RunDetail({ run, onBack }: { run: PayrollRun; onBack: () => void }) {
     setWorking(false)
   }
   const handleDelete = async () => {
-    if (!confirm('Delete this draft run? This cannot be undone.')) return
     setWorking(true)
     await deleteRun(run.id)
     onBack()
@@ -422,16 +494,10 @@ function RunDetail({ run, onBack }: { run: PayrollRun; onBack: () => void }) {
           placeholder="Search employees…" value={search} onChange={e => setSearch(e.target.value)} />
         <div className="flex gap-2">
           {run.status === 'draft' && (
-            <>
-              <button onClick={handleApprove} disabled={working}
-                className="btn-primary text-xs px-4 flex items-center gap-1.5 disabled:opacity-50">
-                <Check size={13} /> Approve Run
-              </button>
-              <button onClick={handleDelete} disabled={working}
-                className="btn-outline text-xs px-4 text-red-500 border-red-200 hover:bg-red-50 flex items-center gap-1.5">
-                <X size={13} /> Delete Draft
-              </button>
-            </>
+            <button onClick={handleApprove} disabled={working}
+              className="btn-primary text-xs px-4 flex items-center gap-1.5 disabled:opacity-50">
+              <Check size={13} /> Approve Run
+            </button>
           )}
           {run.status === 'approved' && (
             <button onClick={handlePaid} disabled={working}
@@ -445,6 +511,10 @@ function RunDetail({ run, onBack }: { run: PayrollRun; onBack: () => void }) {
               <Download size={13} /> Download Excel
             </button>
           )}
+          <button onClick={() => setShowDeleteDlg(true)} disabled={working}
+            className="btn-outline text-xs px-4 flex items-center gap-1.5 text-red-500 border-red-200 hover:bg-red-50 disabled:opacity-50">
+            <X size={13} /> Delete Run
+          </button>
         </div>
       </div>
 
@@ -491,6 +561,13 @@ function RunDetail({ run, onBack }: { run: PayrollRun; onBack: () => void }) {
       </div>
 
       {payslip && <PayslipModal entry={payslip} month={run.month} onClose={() => setPayslip(null)} />}
+      {showDeleteDlg && (
+        <DeleteConfirmModal
+          run={run}
+          onCancel={() => setShowDeleteDlg(false)}
+          onConfirmed={handleDelete}
+        />
+      )}
     </div>
   )
 }
