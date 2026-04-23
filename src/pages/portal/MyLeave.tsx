@@ -1,10 +1,14 @@
-import { useState } from 'react'
-import { CalendarDays, Plus, CheckCircle2, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { CalendarDays, Plus, CheckCircle2, X, RefreshCw } from 'lucide-react'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import { useAppSelector } from '../../store'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
 import { useFirebaseLeave } from '../../hooks/useFirebaseLeave'
+import {
+  fetchRotaLeaveTypes, fetchRotaLeave,
+  type RotaLeaveType, type RotaLeave,
+} from '../../services/rotacloud'
 import type { LeaveType } from '../../types'
 
 const LEAVE_TYPE_LABELS: Record<string, string> = {
@@ -26,8 +30,20 @@ const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
   cancelled: { bg: 'bg-gray-100',  text: 'text-gray-500'   },
 }
 
+const RC_STATUS_PILL: Record<string, string> = {
+  approved:  'bg-green-100 text-green-700',
+  pending:   'bg-amber-100 text-amber-700',
+  declined:  'bg-red-100 text-red-600',
+  cancelled: 'bg-gray-100 text-gray-400',
+}
+
 const inp = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-white text-gray-800'
 
+function fmtDate(s: string) {
+  return new Date(s + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+// ── Apply modal (unchanged) ───────────────────────────────────────────
 function ApplyModal({
   name, employeeId, onClose,
 }: { name: string; employeeId: string; onClose: () => void }) {
@@ -130,6 +146,7 @@ function ApplyModal({
   )
 }
 
+// ── Main page ─────────────────────────────────────────────────────────
 export default function MyLeave() {
   const currentUser = useAppSelector(s => s.auth.user)
   const { employees } = useFirebaseEmployees()
@@ -138,8 +155,52 @@ export default function MyLeave() {
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'declined'>('all')
 
   const myEmployee = employees.find(e => e.email === currentUser?.email)
+  const rcId       = myEmployee?.rotacloudId ? Number(myEmployee.rotacloudId) : null
   const myLeave    = allLeave.filter(r => r.employeeId === myEmployee?.id)
 
+  // ── RotaCloud leave ──────────────────────────────────────────────────
+  const [rcLeaveTypes, setRcLeaveTypes] = useState<RotaLeaveType[]>([])
+  const [rcLeave,      setRcLeave]      = useState<RotaLeave[]>([])
+  const [rcLoading,    setRcLoading]    = useState(false)
+  const [rcError,      setRcError]      = useState('')
+
+  useEffect(() => {
+    if (!rcId) return
+    setRcLoading(true)
+    setRcError('')
+    Promise.all([fetchRotaLeaveTypes(), fetchRotaLeave(rcId)])
+      .then(([types, leave]) => {
+        setRcLeaveTypes(types)
+        setRcLeave(leave.filter(l => l.status !== 'cancelled'))
+        setRcLoading(false)
+      })
+      .catch(e => { setRcError(String(e)); setRcLoading(false) })
+  }, [rcId])
+
+  // ── RotaCloud derived values ─────────────────────────────────────────
+  const typeMap    = new Map(rcLeaveTypes.map(t => [t.id, t]))
+  const rcApproved = rcLeave.filter(l => l.status === 'approved')
+  const rcPending  = rcLeave.filter(l => l.status === 'pending')
+
+  // Group approved days by leave type for balance display
+  const rcByType = new Map<number, { type: RotaLeaveType; approvedDays: number; records: RotaLeave[] }>()
+  for (const l of rcLeave) {
+    const t = typeMap.get(l.leave_type)
+    if (!t) continue
+    const entry = rcByType.get(l.leave_type)
+    if (entry) {
+      if (l.status === 'approved') entry.approvedDays += l.days ?? 0
+      entry.records.push(l)
+    } else {
+      rcByType.set(l.leave_type, {
+        type: t,
+        approvedDays: l.status === 'approved' ? (l.days ?? 0) : 0,
+        records: [l],
+      })
+    }
+  }
+
+  // ── Firebase derived values ──────────────────────────────────────────
   const annualUsed = myLeave.filter(r => r.type === 'annual' && r.status === 'approved').reduce((s, r) => s + r.days, 0)
   const sickUsed   = myLeave.filter(r => r.type === 'sick'   && r.status === 'approved').reduce((s, r) => s + r.days, 0)
   const toilUsed   = myLeave.filter(r => r.type === 'toil'   && r.status === 'approved').reduce((s, r) => s + r.days, 0)
@@ -152,9 +213,9 @@ export default function MyLeave() {
 
   const BREAKDOWN = [
     { label: 'Sick',   used: sickUsed,   color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'Annual', used: annualUsed, color: 'text-primary',      bg: 'bg-blue-50'    },
-    { label: 'TOIL',   used: toilUsed,   color: 'text-amber-600',   bg: 'bg-amber-50'   },
-    { label: 'Other',  used: otherUsed,  color: 'text-purple-600',  bg: 'bg-purple-50'  },
+    { label: 'Annual', used: annualUsed,  color: 'text-primary',     bg: 'bg-blue-50'    },
+    { label: 'TOIL',   used: toilUsed,    color: 'text-amber-600',   bg: 'bg-amber-50'   },
+    { label: 'Other',  used: otherUsed,   color: 'text-purple-600',  bg: 'bg-purple-50'  },
   ]
 
   return (
@@ -164,18 +225,136 @@ export default function MyLeave() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-secondary">My Leave</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Manage your leave requests and balances</p>
+          <p className="text-sm text-gray-400 mt-0.5">Leave balances and request history</p>
         </div>
         <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2 text-sm">
           <Plus size={15} /> Apply for Leave
         </button>
       </div>
 
-      {/* Combined leave balance card */}
+      {/* ── RotaCloud Leave Section ── */}
+      {rcId && (
+        <div className="card">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 bg-violet-50 rounded-xl flex items-center justify-center">
+                <CalendarDays size={14} className="text-violet-600" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-secondary">RotaCloud Leave</p>
+                <p className="text-xs text-gray-400">Official records from your scheduling system</p>
+              </div>
+            </div>
+            {rcLoading && <RefreshCw size={13} className="text-gray-400 animate-spin" />}
+          </div>
+
+          {rcError ? (
+            <div className="px-6 py-4 text-xs text-red-500">{rcError}</div>
+          ) : rcLoading ? (
+            <div className="px-6 py-10 text-center text-xs text-gray-400">Loading RotaCloud leave…</div>
+          ) : (
+            <div className="p-5 space-y-5">
+
+              {/* Summary tiles */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-green-50 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-green-700 tabular-nums">
+                    {rcApproved.reduce((s, l) => s + (l.days ?? 0), 0)}
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">Days Approved</p>
+                </div>
+                <div className="bg-amber-50 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-amber-700 tabular-nums">
+                    {rcPending.reduce((s, l) => s + (l.days ?? 0), 0)}
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">Days Pending</p>
+                </div>
+                <div className="bg-blue-50 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-primary tabular-nums">{rcLeave.length}</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">Total Records</p>
+                </div>
+              </div>
+
+              {/* Per-type balance bars */}
+              {rcByType.size > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">By Leave Type</p>
+                  {[...rcByType.values()].map(({ type, approvedDays }) => {
+                    const hasAllowance = type.allowance != null && type.allowance > 0
+                    const pct = hasAllowance ? Math.min(100, (approvedDays / type.allowance!) * 100) : 0
+                    return (
+                      <div key={type.id} className="bg-gray-50 rounded-xl px-4 py-3">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-semibold text-secondary">{type.name}</span>
+                          <div className="text-right">
+                            <span className="text-xs font-bold text-secondary tabular-nums">{approvedDays}d used</span>
+                            {hasAllowance && (
+                              <span className="text-xs text-gray-400"> / {type.allowance}d</span>
+                            )}
+                          </div>
+                        </div>
+                        {hasAllowance && (
+                          <>
+                            <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-primary transition-all"
+                                style={{ width: `${pct}%` }} />
+                            </div>
+                            <p className="text-[10px] text-gray-400 mt-1 text-right">
+                              {Math.max(0, type.allowance! - approvedDays)}d remaining
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* RotaCloud leave history */}
+              {rcLeave.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-4">No leave records in RotaCloud.</p>
+              ) : (
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">History</p>
+                  <div className="divide-y divide-gray-50">
+                    {rcLeave
+                      .slice()
+                      .sort((a, b) => b.start_date.localeCompare(a.start_date))
+                      .map(l => {
+                        const typeName = typeMap.get(l.leave_type)?.name ?? `Leave #${l.id}`
+                        const pill     = RC_STATUS_PILL[l.status] ?? RC_STATUS_PILL.pending
+                        return (
+                          <div key={l.id} className="flex items-start gap-3 py-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-secondary">{typeName}</p>
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                {fmtDate(l.start_date)}
+                                {l.end_date !== l.start_date && ` → ${fmtDate(l.end_date)}`}
+                                {' · '}<strong className="text-secondary">{l.days}</strong> day{l.days !== 1 ? 's' : ''}
+                              </p>
+                              {l.notes && (
+                                <p className="text-[10px] text-gray-400 italic mt-0.5">"{l.notes}"</p>
+                              )}
+                            </div>
+                            <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full capitalize shrink-0 mt-0.5 ${pill}`}>
+                              {l.status}
+                            </span>
+                          </div>
+                        )
+                      })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Portal Leave Allowance (Firebase) ── */}
       <div className="card p-6">
         <div className="flex items-start justify-between mb-4">
           <div>
-            <p className="text-sm font-semibold text-secondary">Leave Allowance</p>
+            <p className="text-sm font-semibold text-secondary">Portal Leave Allowance</p>
             <p className="text-xs text-gray-400 mt-0.5">{LEAVE_TOTAL} days total · Any leave type</p>
           </div>
           <div className="text-right">
@@ -201,10 +380,10 @@ export default function MyLeave() {
         </div>
       </div>
 
-      {/* History table */}
+      {/* ── Portal Leave Requests (Firebase) ── */}
       <div className="card">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-50 flex-wrap gap-3">
-          <p className="text-sm font-bold text-secondary">Leave History</p>
+          <p className="text-sm font-bold text-secondary">Portal Leave Requests</p>
           <div className="flex gap-1.5 flex-wrap">
             {(['all', 'pending', 'approved', 'declined'] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)}

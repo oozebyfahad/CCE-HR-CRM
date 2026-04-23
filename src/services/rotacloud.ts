@@ -121,6 +121,31 @@ export function monthToUnix(month: string): { start: number; end: number } {
   return { start, end }
 }
 
+export interface RotaLeaveType {
+  id: number
+  name: string
+  colour?: string | null
+  allowance?: number | null   // annual days allowance (may be null/0 if not configured)
+}
+
+export interface RotaLeave {
+  id: number
+  user: number
+  leave_type: number          // leave type ID — join with RotaLeaveType
+  status: string              // 'approved' | 'pending' | 'declined' | 'cancelled'
+  start_date: string          // YYYY-MM-DD
+  end_date: string            // YYYY-MM-DD
+  days: number
+  notes?: string | null
+  approved_by?: number | null
+}
+
+export const fetchRotaLeaveTypes = () =>
+  rotaCall<RotaLeaveType[]>('leave-types')
+
+export const fetchRotaLeave = (userId: number) =>
+  rotaCall<RotaLeave[]>('leave', { user_id: userId }, true)
+
 /** Sums approved hours per RotaCloud user ID from a set of attendance records */
 export function sumHoursByUser(records: RotaAttendance[]): Record<number, number> {
   const map: Record<number, number> = {}

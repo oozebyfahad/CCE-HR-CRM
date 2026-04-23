@@ -9,13 +9,6 @@ import { fetchRotaAttendance, monthToUnix, type RotaAttendance } from '../../ser
 import { unixToLocalDate, unixToHHMM } from '../../hooks/useRotaAttendance'
 import { fmt12, fmtHours, toYMD } from '../../hooks/useFirebaseTimesheets'
 
-// ── Helpers ───────────────────────────────────────────────────────────
-
-function unixToDateStr(unix: number): string {
-  const d = new Date(unix * 1000)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
 // ── Main page ─────────────────────────────────────────────────────────
 
 export default function MyAttendance() {
@@ -47,7 +40,7 @@ export default function MyAttendance() {
     fetchRotaAttendance(start, end)
       .then(recs => {
         setRotaRecords(
-          recs.filter(r => !r.deleted && r.user === myEmployee.rotacloudId)
+          recs.filter(r => !r.deleted && r.user === Number(myEmployee.rotacloudId))
         )
         setRotaLoading(false)
       })
