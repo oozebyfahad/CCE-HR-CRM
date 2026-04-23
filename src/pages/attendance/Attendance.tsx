@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Download, Search, ChevronLeft, ChevronRight, Clock, UserCheck } from 'lucide-react'
+import { Download, Search, ChevronLeft, ChevronRight, Clock, AlertCircle, ExternalLink } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { Link } from 'react-router-dom'
 import { Avatar } from '../../components/common/Avatar'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
-import { useFirebaseAttendance } from '../../hooks/useFirebaseAttendance'
+import { useRotaAttendance, type DailyAttendanceRow } from '../../hooks/useRotaAttendance'
 import { fmt12 } from '../../hooks/useFirebaseTimesheets'
 import { cn } from '../../utils/cn'
 
@@ -44,10 +45,10 @@ function fmtHrs(h: number) {
 }
 
 // ── Export to CSV ─────────────────────────────────────────────────────
-function exportCSV(rows: ReturnType<typeof useFirebaseAttendance>['rows'], date: string) {
-  const header = 'Employee,Department,Clock In,Clock Out,Hours Worked,Overtime,Status'
+function exportCSV(rows: DailyAttendanceRow[], date: string) {
+  const header = 'Employee,Department,Clock In,Clock Out,Hours Worked,Overtime,Late (min),Status'
   const body = rows.map(r =>
-    `"${r.employeeName}","${r.department}","${r.clockIn ? fmt12(r.clockIn) : '—'}","${r.clockOut ? fmt12(r.clockOut) : '—'}","${r.hoursWorked.toFixed(2)}","${r.overtime.toFixed(2)}","${STATUS_CFG[r.status]?.label ?? r.status}"`
+    `"${r.employeeName}","${r.department}","${r.clockIn ? fmt12(r.clockIn) : '—'}","${r.clockOut ? fmt12(r.clockOut) : '—'}","${r.hoursWorked.toFixed(2)}","${r.overtime.toFixed(2)}","${r.minutesLate}","${STATUS_CFG[r.status]?.label ?? r.status}"`
   ).join('\n')
   const blob = new Blob([`${header}\n${body}`], { type: 'text/csv' })
   const url  = URL.createObjectURL(blob)
@@ -63,13 +64,17 @@ export default function Attendance() {
   const [statusFilter, setStatusFilter] = useState('All')
 
   const { employees } = useFirebaseEmployees()
-  const { rows, weeklyData, counts, loading } = useFirebaseAttendance(selectedDate, employees)
+  const { rows, weeklyData, counts, loading, error } = useRotaAttendance(selectedDate, employees)
 
-  const today    = toYMD(new Date())
-  const isToday  = selectedDate === today
+  const today   = toYMD(new Date())
+  const isToday = selectedDate === today
+
+  const unlinked = employees.filter(e => e.status === 'active' && !e.rotacloudId).length
 
   const filtered = rows.filter(r => {
-    const matchSearch = !search || r.employeeName.toLowerCase().includes(search.toLowerCase()) || r.department.toLowerCase().includes(search.toLowerCase())
+    const matchSearch = !search ||
+      r.employeeName.toLowerCase().includes(search.toLowerCase()) ||
+      r.department.toLowerCase().includes(search.toLowerCase())
     const matchStatus = statusFilter === 'All' || r.status === statusFilter
     return matchSearch && matchStatus
   })
@@ -84,7 +89,6 @@ export default function Attendance() {
           <p className="page-sub">{fmtDate(selectedDate)}</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Date navigator */}
           <div className="flex items-center gap-1 border border-gray-200 rounded-lg overflow-hidden">
             <button onClick={() => setSelectedDate(d => shiftDate(d, -1))}
               className="px-2 py-1.5 hover:bg-gray-50 transition text-gray-500">
@@ -107,6 +111,33 @@ export default function Attendance() {
           </button>
         </div>
       </div>
+
+      {/* ── Error banner ── */}
+      {error && (
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+          <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-red-700">Could not fetch from RotaCloud</p>
+            <p className="text-xs text-red-600 mt-0.5">{error}</p>
+          </div>
+          <Link to="/settings" className="flex items-center gap-1 text-xs text-primary font-medium shrink-0">
+            Settings <ExternalLink size={11} />
+          </Link>
+        </div>
+      )}
+
+      {/* ── Unlinked employees notice ── */}
+      {!error && unlinked > 0 && (
+        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+          <AlertCircle size={14} className="text-amber-500 shrink-0" />
+          <p className="text-xs text-amber-700 flex-1">
+            <span className="font-semibold">{unlinked} employee{unlinked !== 1 ? 's' : ''}</span> not linked to RotaCloud — their attendance won't show.
+          </p>
+          <Link to="/settings" className="flex items-center gap-1 text-xs text-amber-700 font-semibold shrink-0">
+            Link now <ExternalLink size={11} />
+          </Link>
+        </div>
+      )}
 
       {/* ── Summary tiles ── */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -134,7 +165,7 @@ export default function Attendance() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-sm font-semibold text-secondary">7-Day Overview</p>
-            <p className="text-xs text-gray-400">Based on clock-in records and HR markings</p>
+            <p className="text-xs text-gray-400">Live data from RotaCloud</p>
           </div>
         </div>
         <ResponsiveContainer width="100%" height={140}>
@@ -170,7 +201,7 @@ export default function Attendance() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/50">
-                {['Employee', 'Department', 'Clock In', 'Clock Out', 'Hours', 'Overtime', 'Status', 'Source'].map(h => (
+                {['Employee', 'Department', 'Clock In', 'Clock Out', 'Hours', 'Overtime', 'Late', 'Status'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -181,7 +212,7 @@ export default function Attendance() {
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center">
                     <div className="flex items-center justify-center gap-2 text-gray-400 text-sm">
-                      <Clock size={14} className="animate-spin" /> Loading attendance…
+                      <Clock size={14} className="animate-spin" /> Fetching from RotaCloud…
                     </div>
                   </td>
                 </tr>
@@ -205,7 +236,12 @@ export default function Attendance() {
                           <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-white" />
                         )}
                       </div>
-                      <span className="text-sm font-medium text-secondary">{r.employeeName}</span>
+                      <div>
+                        <p className="text-sm font-medium text-secondary">{r.employeeName}</p>
+                        {!r.rotacloudLinked && (
+                          <p className="text-[10px] text-gray-400">Not linked</p>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-500">{r.department || '—'}</td>
@@ -228,22 +264,12 @@ export default function Attendance() {
                       : <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-4 py-3">
-                    <StatusBadge status={r.status} />
+                    {r.minutesLate > 0
+                      ? <span className="text-red-500 text-xs font-semibold">{r.minutesLate}m</span>
+                      : <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-4 py-3">
-                    {r.statusSource === 'hr_marked' && (
-                      <span className="flex items-center gap-1 text-[10px] text-blue-600 font-medium">
-                        <UserCheck size={11} /> HR marked
-                      </span>
-                    )}
-                    {r.statusSource === 'time_entry' && (
-                      <span className="flex items-center gap-1 text-[10px] text-gray-400">
-                        <Clock size={10} /> Clock record
-                      </span>
-                    )}
-                    {r.statusSource === 'no_data' && (
-                      <span className="text-[10px] text-gray-300">No data</span>
-                    )}
+                    <StatusBadge status={r.status} />
                   </td>
                 </tr>
               ))}
