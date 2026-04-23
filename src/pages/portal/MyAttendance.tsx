@@ -62,9 +62,10 @@ export default function MyAttendance() {
     setRotaLoading(true)
     setRotaError(false)
     const { start, end } = monthToUnix(monthStr)
-    fetchRotaAttendance(start, end)
+    // Pass userId so proxy filters server-side
+    fetchRotaAttendance(start, end, myEmployee.rotacloudId)
       .then(recs => {
-        setRotaRecords(recs.filter(r => !r.deleted && r.user === myEmployee.rotacloudId))
+        setRotaRecords(recs.filter(r => !r.deleted))
         setRotaLoading(false)
       })
       .catch(() => { setRotaError(true); setRotaLoading(false) })

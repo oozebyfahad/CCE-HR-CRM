@@ -113,9 +113,10 @@ export default function MyTime() {
     if (!myEmployee?.rotacloudId) return
     const { start, end } = monthToUnix(monthStr)
     setRotaLoading(true)
-    fetchRotaShifts(start, end)
+    // Pass userId so the proxy filters server-side — much faster than fetching all
+    fetchRotaShifts(start, end, myEmployee.rotacloudId)
       .then(all => {
-        const mine = all.filter(s => !s.deleted && !s.open && s.user === myEmployee.rotacloudId)
+        const mine = all.filter(s => !s.deleted && !s.open)
         setRotaShifts(prev => {
           const byId = new Map(prev.map(s => [s.id, s]))
           mine.forEach(s => byId.set(s.id, s))

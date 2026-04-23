@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../config/firebase'
 import { useAppSelector } from '../store'
 import type { FirebaseEmployee } from './useFirebaseEmployees'
+import { fetchRotaUsers } from '../services/rotacloud'
 
 export function useMyEmployee() {
   const currentUser = useAppSelector(s => s.auth.user)
   const [employee, setEmployee] = useState<FirebaseEmployee | null>(null)
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState('')
+  const autoLinkAttempted = useRef(false)
 
   useEffect(() => {
     if (!currentUser?.email) {
@@ -30,6 +32,21 @@ export function useMyEmployee() {
     })
     return unsub
   }, [currentUser?.email])
+
+  // Auto-link to RotaCloud by email if rotacloudId is not yet set.
+  // Saves the discovered ID permanently so subsequent pages get it instantly.
+  useEffect(() => {
+    if (!employee || employee.rotacloudId || autoLinkAttempted.current) return
+    autoLinkAttempted.current = true
+    fetchRotaUsers()
+      .then(users => {
+        const match = users.find(u => !u.deleted && u.email?.toLowerCase() === employee.email?.toLowerCase())
+        if (match) {
+          updateDoc(doc(db, 'employees', employee.id), { rotacloudId: match.id }).catch(() => {})
+        }
+      })
+      .catch(() => {})
+  }, [employee?.id, employee?.rotacloudId])
 
   const updateEmployee = async (data: Partial<FirebaseEmployee>) => {
     if (!employee) return

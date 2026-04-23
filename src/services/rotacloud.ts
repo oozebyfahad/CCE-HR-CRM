@@ -93,11 +93,15 @@ export interface RotaRole {
 export const fetchRotaUsers = () =>
   rotaCall<RotaUser[]>('users', { limit: 500 })
 
-export const fetchRotaAttendance = (startUnix: number, endUnix: number) =>
-  rotaCall<RotaAttendance[]>('attendance', { start: startUnix, end: endUnix }, true)
+export const fetchRotaAttendance = (startUnix: number, endUnix: number, userId?: number) =>
+  rotaCall<RotaAttendance[]>('attendance',
+    userId ? { start: startUnix, end: endUnix, user_id: userId } : { start: startUnix, end: endUnix },
+    true)
 
-export const fetchRotaShifts = (startUnix: number, endUnix: number) =>
-  rotaCall<RotaShift[]>('shifts', { start: startUnix, end: endUnix }, true)
+export const fetchRotaShifts = (startUnix: number, endUnix: number, userId?: number) =>
+  rotaCall<RotaShift[]>('shifts',
+    userId ? { start: startUnix, end: endUnix, user_id: userId } : { start: startUnix, end: endUnix },
+    true)
 
 export const fetchRotaLocations = () =>
   rotaCall<RotaLocation[]>('locations')
