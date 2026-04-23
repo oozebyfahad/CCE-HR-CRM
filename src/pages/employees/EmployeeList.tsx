@@ -1,9 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Plus, Download, MoreHorizontal, Eye, Pencil, Trash2, Users, Filter, DatabaseZap, ArrowUpDown, Check, FileUp, RefreshCw, X, AlertCircle } from 'lucide-react'
+import { Search, Plus, Download, MoreHorizontal, Eye, Pencil, Trash2, Users, Filter, DatabaseZap, ArrowUpDown, Check, FileUp, RefreshCw, X, AlertCircle, UserCheck, KeyRound, ShieldCheck } from 'lucide-react'
 import { fetchRotaUsers, fetchRotaRoles, rotaUserName, type RotaUser, type RotaRole } from '../../services/rotacloud'
 import { useAppSelector } from '../../store'
 import { format, isValid } from 'date-fns'
+import { createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth'
+import { doc, setDoc } from 'firebase/firestore'
+import { auth, authSecondary, db } from '../../config/firebase'
+import { useFirebaseUsers, type FirebaseUser } from '../../hooks/useFirebaseUsers'
+import type { UserRole } from '../../types'
 
 function safeFormatDate(d?: string): string {
   if (!d) return '—'
@@ -34,8 +39,183 @@ function Toast({ msg, type, onDone }: { msg: string; type: 'success' | 'error'; 
   )
 }
 
+// ── Role change modal (inline) ──────────────────────────────────────────
+const ROLE_OPTIONS: { value: UserRole; label: string; color: string }[] = [
+  { value: 'admin',     label: 'Admin',     color: 'text-red-600 bg-red-50 border-red-200'       },
+  { value: 'hr',        label: 'HR',        color: 'text-blue-600 bg-blue-50 border-blue-200'    },
+  { value: 'team_lead', label: 'Team Lead', color: 'text-purple-600 bg-purple-50 border-purple-200' },
+  { value: 'employee',  label: 'Employee',  color: 'text-green-600 bg-green-50 border-green-200' },
+]
+
+function ChangeRoleModal({ userName, currentRole, onSave, onClose }: {
+  userName: string; currentRole: UserRole
+  onSave: (r: UserRole) => Promise<void>; onClose: () => void
+}) {
+  const [role, setRole] = useState<UserRole>(currentRole)
+  const [saving, setSaving] = useState(false)
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <p className="font-bold text-gray-800">Change Portal Role</p>
+            <p className="text-xs text-gray-400 mt-0.5">{userName}</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100"><X size={15} className="text-gray-500" /></button>
+        </div>
+        <div className="space-y-2 mb-5">
+          {ROLE_OPTIONS.map(opt => (
+            <button key={opt.value} onClick={() => setRole(opt.value)}
+              className={cn('w-full flex items-center justify-between px-4 py-3 rounded-xl border text-sm font-medium transition',
+                role === opt.value ? 'border-primary bg-primary/5 text-primary' : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
+              <span>{opt.label}</span>
+              {role === opt.value && <Check size={14} className="text-primary" />}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">Cancel</button>
+          <button disabled={saving || role === currentRole} onClick={async () => { setSaving(true); await onSave(role); onClose() }}
+            className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold transition disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save Role'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Bulk create portal accounts modal ──────────────────────────────────
+function CreatePortalAccountsModal({ employees, existingUsers, onClose, onDone }: {
+  employees: import('../../hooks/useFirebaseEmployees').FirebaseEmployee[]
+  existingUsers: FirebaseUser[]
+  onClose: () => void
+  onDone: (count: number) => void
+}) {
+  const existingEmails = new Set(existingUsers.map(u => u.email.toLowerCase().trim()))
+  const toCreate = employees.filter(e => e.email && !existingEmails.has(e.email.toLowerCase().trim()))
+
+  const [status, setStatus] = useState<'idle' | 'running' | 'done'>('idle')
+  const [progress, setProgress] = useState(0)
+  const [results, setResults] = useState<{ name: string; email: string; ok: boolean; reason?: string }[]>([])
+
+  const run = async () => {
+    setStatus('running')
+    const out: typeof results = []
+    for (let i = 0; i < toCreate.length; i++) {
+      const emp = toCreate[i]
+      try {
+        const { user } = await createUserWithEmailAndPassword(authSecondary, emp.email!, '123456')
+        await authSecondary.signOut()
+        await setDoc(doc(db, 'users', user.uid), {
+          name:        emp.name,
+          email:       emp.email!.toLowerCase().trim(),
+          role:        'employee' as UserRole,
+          designation: emp.jobTitle  ?? '',
+          department:  emp.department ?? '',
+        })
+        out.push({ name: emp.name, email: emp.email!, ok: true })
+      } catch (err: unknown) {
+        const code = (err as { code?: string })?.code ?? ''
+        const reason = code === 'auth/email-already-in-use' ? 'Email already registered' : 'Failed'
+        out.push({ name: emp.name, email: emp.email!, ok: false, reason })
+      }
+      setProgress(i + 1)
+      setResults([...out])
+    }
+    setStatus('done')
+    onDone(out.filter(r => r.ok).length)
+  }
+
+  const pct = toCreate.length ? Math.round((progress / toCreate.length) * 100) : 100
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center shrink-0">
+              <UserCheck size={16} className="text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-800">Create Portal Accounts</p>
+              <p className="text-xs text-gray-400">{toCreate.length} employees without accounts · password: 123456</p>
+            </div>
+          </div>
+          {status !== 'running' && (
+            <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100"><X size={15} className="text-gray-500" /></button>
+          )}
+        </div>
+
+        <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+          {toCreate.length === 0 ? (
+            <div className="text-center py-8">
+              <ShieldCheck size={32} className="mx-auto text-green-400 mb-3" />
+              <p className="text-sm font-semibold text-gray-600">All employees already have portal accounts.</p>
+            </div>
+          ) : status === 'idle' ? (
+            <>
+              <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700">
+                <strong>{toCreate.length} accounts</strong> will be created with role <strong>Employee</strong> and default password <strong>123456</strong>. You can change roles individually after.
+              </div>
+              <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                {toCreate.map(e => (
+                  <div key={e.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-50 text-xs">
+                    <span className="font-medium text-gray-700 truncate flex-1">{e.name}</span>
+                    <span className="text-gray-400 truncate max-w-[180px]">{e.email}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              {status === 'running' && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>Creating accounts…</span>
+                    <span>{progress} / {toCreate.length}</span>
+                  </div>
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-primary rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              )}
+              <div className="space-y-1 max-h-[260px] overflow-y-auto">
+                {results.map((r, i) => (
+                  <div key={i} className={cn('flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs', r.ok ? 'bg-green-50' : 'bg-red-50')}>
+                    <span className={r.ok ? 'text-green-600' : 'text-red-500'}>{r.ok ? '✓' : '✕'}</span>
+                    <span className="font-medium truncate flex-1">{r.name}</span>
+                    <span className={cn('truncate max-w-[180px]', r.ok ? 'text-gray-400' : 'text-red-400')}>{r.ok ? r.email : r.reason}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="px-6 pb-5 flex gap-2">
+          <button onClick={onClose} disabled={status === 'running'} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition disabled:opacity-40">
+            {status === 'done' ? 'Close' : 'Cancel'}
+          </button>
+          {status === 'idle' && toCreate.length > 0 && (
+            <button onClick={run} className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold transition hover:bg-primary/90 flex items-center justify-center gap-1.5">
+              <UserCheck size={14} /> Create {toCreate.length} Accounts
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Actions dropdown ────────────────────────────────────────────────────
-function ActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEdit: () => void; onDelete: () => void }) {
+interface ActionsMenuProps {
+  onView: () => void; onEdit: () => void; onDelete: () => void
+  portalUser?: FirebaseUser | null
+  onChangeRole?: () => void
+  onResetPassword?: () => void
+}
+function ActionsMenu({ onView, onEdit, onDelete, portalUser, onChangeRole, onResetPassword }: ActionsMenuProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -45,6 +225,14 @@ function ActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEdit:
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  const items = [
+    { label: 'View Details',    icon: Eye,       action: onView,           color: '' },
+    { label: 'Edit',            icon: Pencil,    action: onEdit,           color: '' },
+    ...(portalUser && onChangeRole    ? [{ label: 'Change Portal Role', icon: ShieldCheck, action: onChangeRole,    color: 'text-purple-600' }] : []),
+    ...(portalUser && onResetPassword ? [{ label: 'Send Password Reset', icon: KeyRound,  action: onResetPassword, color: 'text-amber-600' }] : []),
+    { label: 'Delete',          icon: Trash2,    action: onDelete,         color: 'text-red-500' },
+  ]
+
   return (
     <div ref={ref} className="relative" onClick={e => e.stopPropagation()}>
       <button onClick={() => setOpen(v => !v)}
@@ -52,12 +240,14 @@ function ActionsMenu({ onView, onEdit, onDelete }: { onView: () => void; onEdit:
         <MoreHorizontal size={15} />
       </button>
       {open && (
-        <div className="absolute right-0 bottom-full mb-1 z-20 bg-white border border-gray-100 rounded-xl shadow-xl py-1 min-w-[150px]">
-          {[
-            { label: 'View Details', icon: Eye,    action: onView,   color: '' },
-            { label: 'Edit',         icon: Pencil, action: onEdit,   color: '' },
-            { label: 'Delete',       icon: Trash2, action: onDelete, color: 'text-red-500' },
-          ].map(({ label, icon: Icon, action, color }) => (
+        <div className="absolute right-0 bottom-full mb-1 z-20 bg-white border border-gray-100 rounded-xl shadow-xl py-1 min-w-[175px]">
+          {portalUser && (
+            <div className="px-3 pt-2 pb-1.5 border-b border-gray-50 mb-1">
+              <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Portal Account</p>
+              <p className="text-[10px] font-semibold text-primary capitalize">{portalUser.role.replace('_', ' ')}</p>
+            </div>
+          )}
+          {items.map(({ label, icon: Icon, action, color }) => (
             <button key={label} onClick={() => { action(); setOpen(false) }}
               className={cn('w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-gray-50 transition', color || 'text-gray-700')}>
               <Icon size={13} /> {label}
@@ -351,7 +541,13 @@ export default function EmployeeList() {
   const navigate    = useNavigate()
   const currentUser = useAppSelector(s => s.auth.user)
   const isTeamLead  = currentUser?.role === 'team_lead'
+  const isAdmin     = currentUser?.role === 'admin'
   const { employees, loading, error, addEmployee, updateEmployee, deleteEmployee } = useFirebaseEmployees()
+  const { users: portalUsers, updateUserRole } = useFirebaseUsers()
+
+  // Build email → portal user lookup
+  const userByEmail = new Map<string, FirebaseUser>()
+  portalUsers.forEach(u => userByEmail.set(u.email.toLowerCase().trim(), u))
 
   const [search,    setSearch]    = useState('')
   const [dept,      setDept]      = useState('All')
@@ -360,9 +556,12 @@ export default function EmployeeList() {
   const [statusF,   setStatusF]   = useState('All')
   const [sort,      setSort]      = useState<SortKey>('default')
 
-  const [addOpen,   setAddOpen]   = useState(false)
-  const [editEmp,   setEditEmp]   = useState<FirebaseEmployee | null>(null)
-  const [deleteEmp, setDeleteEmp] = useState<FirebaseEmployee | null>(null)
+  const [addOpen,         setAddOpen]         = useState(false)
+  const [editEmp,         setEditEmp]         = useState<FirebaseEmployee | null>(null)
+  const [deleteEmp,       setDeleteEmp]       = useState<FirebaseEmployee | null>(null)
+  const [changeRoleEmp,   setChangeRoleEmp]   = useState<{ emp: FirebaseEmployee; user: FirebaseUser } | null>(null)
+  const [showPortalModal, setShowPortalModal] = useState(false)
+  const [resetSentFor,    setResetSentFor]    = useState<string | null>(null)
 
   const [importOpen,       setImportOpen]       = useState(false)
   const [rotaImportOpen,   setRotaImportOpen]   = useState(false)
@@ -370,6 +569,15 @@ export default function EmployeeList() {
   const [seeding,  setSeeding]  = useState(false)
 
   const notify = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
+
+  const handleResetPassword = async (email: string) => {
+    try {
+      await sendPasswordResetEmail(auth, email)
+      setResetSentFor(email)
+      notify(`Password reset email sent to ${email}`)
+      setTimeout(() => setResetSentFor(null), 3000)
+    } catch { notify('Failed to send reset email', 'error') }
+  }
 
   const handleImportEmployees = async (employees: Omit<FirebaseEmployee, 'id'>[]) => {
     for (const emp of employees) {
@@ -444,7 +652,7 @@ export default function EmployeeList() {
           </p>
         </div>
         {!isTeamLead && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={handleSeed}
               disabled={seeding}
@@ -464,6 +672,11 @@ export default function EmployeeList() {
             <button onClick={() => setRotaImportOpen(true)} className="btn-outline text-sm gap-2">
               <RefreshCw size={14} /> From RotaCloud
             </button>
+            {isAdmin && (
+              <button onClick={() => setShowPortalModal(true)} className="btn-outline text-sm gap-2 text-primary border-primary/30 hover:bg-primary/5">
+                <UserCheck size={14} /> Create Portal Accounts
+              </button>
+            )}
             <button onClick={() => setAddOpen(true)} className="btn-primary text-sm gap-2">
               <Plus size={14} /> Add Employee
             </button>
@@ -606,7 +819,7 @@ export default function EmployeeList() {
             </div>
 
             {/* Actions */}
-            <div className="w-10 shrink-0 flex justify-end">
+            <div className="w-10 shrink-0 flex justify-end" onClick={e => e.stopPropagation()}>
               {isTeamLead ? (
                 <button
                   onClick={e => { e.stopPropagation(); navigate(`/employees/${emp.id}?tab=Timesheet`) }}
@@ -614,13 +827,19 @@ export default function EmployeeList() {
                   title="View Timesheet">
                   <Eye size={14} />
                 </button>
-              ) : (
-                <ActionsMenu
-                  onView={() => navigate(`/employees/${emp.id}`)}
-                  onEdit={() => setEditEmp(emp)}
-                  onDelete={() => setDeleteEmp(emp)}
-                />
-              )}
+              ) : (() => {
+                const portalUser = emp.email ? userByEmail.get(emp.email.toLowerCase().trim()) ?? null : null
+                return (
+                  <ActionsMenu
+                    onView={() => navigate(`/employees/${emp.id}`)}
+                    onEdit={() => setEditEmp(emp)}
+                    onDelete={() => setDeleteEmp(emp)}
+                    portalUser={portalUser}
+                    onChangeRole={portalUser ? () => setChangeRoleEmp({ emp, user: portalUser }) : undefined}
+                    onResetPassword={portalUser && emp.email ? () => handleResetPassword(emp.email!) : undefined}
+                  />
+                )
+              })()}
             </div>
           </div>
         ))}
@@ -659,6 +878,24 @@ export default function EmployeeList() {
           name={deleteEmp.name}
           onConfirm={handleDelete}
           onClose={() => setDeleteEmp(null)}
+        />
+      )}
+
+      {changeRoleEmp && (
+        <ChangeRoleModal
+          userName={changeRoleEmp.emp.name}
+          currentRole={changeRoleEmp.user.role}
+          onSave={role => updateUserRole(changeRoleEmp.user.id, role)}
+          onClose={() => { setChangeRoleEmp(null); notify('Role updated') }}
+        />
+      )}
+
+      {showPortalModal && (
+        <CreatePortalAccountsModal
+          employees={employees.filter(e => e.status === 'active')}
+          existingUsers={portalUsers}
+          onClose={() => setShowPortalModal(false)}
+          onDone={count => { setShowPortalModal(false); notify(`${count} portal account${count !== 1 ? 's' : ''} created`) }}
         />
       )}
 
