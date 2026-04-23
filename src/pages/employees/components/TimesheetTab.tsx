@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Clock, ChevronLeft, ChevronRight, Plus, Edit2,
-  CheckCircle2, History, AlarmClock, UserCheck,
+  CheckCircle2, History, AlarmClock, UserCheck, RefreshCw, AlertCircle,
 } from 'lucide-react'
 import type { FirebaseEmployee } from '../../../hooks/useFirebaseEmployees'
 import {
@@ -10,6 +10,8 @@ import {
 } from '../../../hooks/useFirebaseTimesheets'
 import { useAppSelector } from '../../../store'
 import { cn } from '../../../utils/cn'
+import { fetchRotaAttendance, monthToUnix, type RotaAttendance } from '../../../services/rotacloud'
+import { unixToHHMM, unixToLocalDate } from '../../../hooks/useRotaAttendance'
 
 // ── Constants ─────────────────────────────────────────────────────────
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -294,6 +296,239 @@ function WeekBar({ days, entries }: { days: Date[]; entries: TimeEntry[] }) {
 }
 
 // ── Main TimesheetTab ──────────────────────────────────────────────────
+// ── RotaCloud Monthly Timesheet ────────────────────────────────────────
+
+const MIN_MONTH = '2026-04'
+
+function prevMonth(m: string): string {
+  const [y, mo] = m.split('-').map(Number)
+  const d = new Date(y, mo - 2, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+function nextMonth(m: string): string {
+  const [y, mo] = m.split('-').map(Number)
+  const d = new Date(y, mo, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+function currentMonth(): string {
+  const n = new Date()
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`
+}
+function fmtMonth(m: string): string {
+  const [y, mo] = m.split('-').map(Number)
+  return new Date(y, mo - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+}
+function dayOfWeek(dateStr: string): string {
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short' })
+}
+function isWeekend(dateStr: string): boolean {
+  const d = new Date(dateStr + 'T12:00:00').getDay()
+  return d === 0 || d === 6
+}
+
+function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
+  const [month,   setMonth]   = useState(currentMonth)
+  const [records, setRecords] = useState<RotaAttendance[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState('')
+
+  const maxMonth = currentMonth()
+
+  useEffect(() => {
+    if (!emp.rotacloudId) return
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    const { start, end } = monthToUnix(month)
+    fetchRotaAttendance(start, end)
+      .then(recs => {
+        if (!cancelled) {
+          setRecords(recs.filter(r => !r.deleted && r.user === emp.rotacloudId))
+          setLoading(false)
+        }
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err))
+          setLoading(false)
+        }
+      })
+    return () => { cancelled = true }
+  }, [month, emp.rotacloudId])
+
+  // Index by local date (prefer approved record if multiple per day)
+  const byDate = new Map<string, RotaAttendance>()
+  for (const r of records) {
+    const d = unixToLocalDate(r.in_time)
+    const ex = byDate.get(d)
+    if (!ex || r.approved) byDate.set(d, r)
+  }
+
+  // Build day rows for the month
+  const [y, mo] = month.split('-').map(Number)
+  const daysInMonth = new Date(y, mo, 0).getDate()
+  const days = Array.from({ length: daysInMonth }, (_, i) => {
+    const dd  = String(i + 1).padStart(2, '0')
+    const str = `${month}-${dd}`
+    return { date: str, rec: byDate.get(str) }
+  })
+
+  // Monthly totals
+  const totalHours  = [...byDate.values()].reduce((s, r) => s + r.hours, 0)
+  const totalDays   = [...byDate.values()].filter(r => r.hours > 0 || r.in_time_clocked).length
+  const lateDays    = [...byDate.values()].filter(r => r.minutes_late > 30).length
+  const approvedDays = [...byDate.values()].filter(r => r.approved).length
+
+  if (!emp.rotacloudId) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+        <AlertCircle size={28} className="text-gray-300" />
+        <p className="text-sm font-semibold text-gray-500">Not linked to RotaCloud</p>
+        <p className="text-xs text-gray-400">Go to Settings → Integrations → Fetch & Match to link this employee.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+
+      {/* Month navigator */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setMonth(m => prevMonth(m))}
+          disabled={month <= MIN_MONTH}
+          className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 transition disabled:opacity-30">
+          <ChevronLeft size={15} />
+        </button>
+        <p className="text-sm font-bold text-secondary min-w-[160px] text-center">{fmtMonth(month)}</p>
+        <button
+          onClick={() => setMonth(m => nextMonth(m))}
+          disabled={month >= maxMonth}
+          className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 transition disabled:opacity-30">
+          <ChevronRight size={15} />
+        </button>
+        {loading && <RefreshCw size={13} className="text-gray-400 animate-spin ml-1" />}
+      </div>
+
+      {/* Monthly summary tiles */}
+      <div className="grid grid-cols-4 gap-3">
+        {[
+          { label: 'Days Worked',   value: totalDays,                    color: 'text-green-600',  bg: 'bg-green-50'  },
+          { label: 'Total Hours',   value: fmtHours(totalHours),         color: 'text-primary',    bg: 'bg-blue-50'   },
+          { label: 'Late Days',     value: lateDays,                     color: 'text-amber-600',  bg: 'bg-amber-50'  },
+          { label: 'Approved',      value: `${approvedDays}d`,           color: 'text-violet-600', bg: 'bg-violet-50' },
+        ].map(s => (
+          <div key={s.label} className={`rounded-xl p-3 ${s.bg}`}>
+            <p className="text-[10px] text-gray-500 font-medium">{s.label}</p>
+            <p className={`text-xl font-bold mt-0.5 tabular-nums ${s.color}`}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <AlertCircle size={14} className="text-red-500 shrink-0" />
+          <p className="text-xs text-red-600">{error}</p>
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="rounded-xl border border-gray-100 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100">
+              {['Date', 'Day', 'Clock In', 'Clock Out', 'Hours', 'Break', 'Late', 'Status'].map(h => (
+                <th key={h} className="px-3 py-2.5 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {days.map(({ date, rec }) => {
+              const weekend = isWeekend(date)
+              const future  = date > toYMD(new Date())
+              const inHHMM  = rec?.in_time_clocked  ? unixToHHMM(rec.in_time_clocked)  : undefined
+              const outHHMM = rec?.out_time_clocked ? unixToHHMM(rec.out_time_clocked) : undefined
+              const stilIn  = !!rec?.in_time_clocked && !rec?.out_time_clocked
+
+              let statusLabel = '—'
+              let statusCls   = 'text-gray-300'
+              if (rec) {
+                if (stilIn)                    { statusLabel = 'Live';    statusCls = 'text-green-600 font-semibold' }
+                else if (rec.hours >= 4 && rec.minutes_late > 30) { statusLabel = 'Late';    statusCls = 'text-amber-600 font-semibold' }
+                else if (rec.hours > 0 && rec.hours < 4)          { statusLabel = 'Half day'; statusCls = 'text-purple-600 font-semibold' }
+                else if (rec.hours >= 4)                           { statusLabel = 'Present'; statusCls = 'text-green-600 font-semibold' }
+                else                                               { statusLabel = 'No hours'; statusCls = 'text-gray-400' }
+              } else if (weekend) {
+                statusLabel = 'Weekend'; statusCls = 'text-gray-300'
+              } else if (!future) {
+                statusLabel = 'Absent'; statusCls = 'text-red-400 font-semibold'
+              }
+
+              return (
+                <tr key={date} className={cn(
+                  'transition-colors',
+                  weekend ? 'bg-gray-50/50' : 'hover:bg-gray-50/60',
+                )}>
+                  <td className={cn('px-3 py-2 text-xs font-mono', weekend ? 'text-gray-300' : 'text-gray-700')}>
+                    {date.slice(5)} {/* MM-DD */}
+                  </td>
+                  <td className={cn('px-3 py-2 text-xs', weekend ? 'text-gray-300' : 'text-gray-500')}>
+                    {dayOfWeek(date)}
+                  </td>
+                  <td className="px-3 py-2 text-xs font-mono text-gray-600">
+                    {inHHMM ? fmt12(inHHMM) : <span className="text-gray-200">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-xs font-mono text-gray-600">
+                    {stilIn
+                      ? <span className="text-green-500 font-semibold animate-pulse">Live</span>
+                      : outHHMM ? fmt12(outHHMM) : <span className="text-gray-200">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-xs font-semibold text-gray-700">
+                    {rec?.hours ? fmtHours(rec.hours) : <span className="text-gray-200">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-gray-400">
+                    {rec?.minutes_break ? `${rec.minutes_break}m` : <span className="text-gray-200">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {rec?.minutes_late && rec.minutes_late > 0
+                      ? <span className="text-amber-500 font-semibold">{rec.minutes_late}m</span>
+                      : <span className="text-gray-200">—</span>}
+                  </td>
+                  <td className={cn('px-3 py-2 text-xs', statusCls)}>
+                    {statusLabel}
+                    {rec?.approved && statusLabel !== '—' && statusLabel !== 'Weekend' && (
+                      <CheckCircle2 size={10} className="inline ml-1 text-green-400" />
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+          {/* Totals row */}
+          {totalHours > 0 && (
+            <tfoot>
+              <tr className="bg-gray-50 border-t border-gray-100 font-semibold">
+                <td colSpan={4} className="px-3 py-2.5 text-xs text-gray-500">Monthly Total</td>
+                <td className="px-3 py-2.5 text-xs text-primary">{fmtHours(totalHours)}</td>
+                <td colSpan={3} className="px-3 py-2.5 text-xs text-gray-400">{totalDays} days · {lateDays} late</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+
+        {!loading && totalDays === 0 && !error && (
+          <div className="py-10 text-center text-xs text-gray-400">
+            No RotaCloud attendance records for {fmtMonth(month)}.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
   const currentUser = useAppSelector(s => s.auth.user)
   const role        = currentUser?.role ?? 'employee'
@@ -305,6 +540,7 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
   const canEdit           = role === 'hr' || role === 'admin'
   const canApprove        = (role === 'admin' || role === 'hr' || role === 'team_lead') && !isOwnProfile
 
+  const [view,        setView]        = useState<'weekly' | 'monthly'>('weekly')
   const [weekStart,   setWeekStart]   = useState<Date>(() => weekMonday(new Date()))
   const [editEntry,   setEditEntry]   = useState<TimeEntry | null>(null)
   const [addingDay,   setAddingDay]   = useState<string | null>(null)
@@ -344,6 +580,25 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
 
   return (
     <div>
+      {/* ── View toggle ── */}
+      <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mb-4">
+        {(['weekly', 'monthly'] as const).map(v => (
+          <button key={v} onClick={() => setView(v)}
+            className={cn(
+              'px-4 py-1.5 rounded-lg text-xs font-semibold transition',
+              view === v ? 'bg-white shadow-sm text-secondary' : 'text-gray-500 hover:text-gray-700'
+            )}>
+            {v === 'weekly' ? 'Weekly' : 'Monthly (RotaCloud)'}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Monthly RotaCloud view ── */}
+      {view === 'monthly' && <RotaMonthlyView emp={emp} />}
+
+      {/* ── Weekly view ── */}
+      {view === 'weekly' && <div>
+
       {/* ── Toolbar ── */}
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className="flex items-center gap-2 flex-wrap">
@@ -600,6 +855,7 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
           onClose={() => setEditEntry(null)}
         />
       )}
+      </div>}
     </div>
   )
 }
