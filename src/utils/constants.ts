@@ -43,14 +43,15 @@ export const DEPARTMENT_COLORS: Record<string, string> = {
 }
 
 export const LEAVE_TYPE_LABELS: Record<string, string> = {
-  annual:        'Annual Leave',
-  sick:          'Sick Leave',
-  casual:        'Casual Leave',
-  unpaid:        'Unpaid Leave',
-  maternity:     'Maternity Leave',
-  paternity:     'Paternity Leave',
-  compassionate: 'Compassionate',
-  toil:          'TOIL',
+  annual:         'Annual Leave',
+  public_holiday: 'Public Holidays',
+  sick:           'Sick Leave',
+  casual:         'Casual Leave',
+  unpaid:         'Unpaid Leave',
+  maternity:      'Maternity Leave',
+  paternity:      'Paternity Leave',
+  compassionate:  'Compassionate',
+  toil:           'TOIL',
 }
 
 export const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {

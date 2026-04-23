@@ -34,14 +34,15 @@ function workingDaysBetween(from: string, to: string): number {
 }
 
 const LEAVE_COLORS: Record<string, string> = {
-  annual:        '#2E86C1',
-  sick:          '#EF4444',
-  casual:        '#8B5CF6',
-  unpaid:        '#9CA3AF',
-  maternity:     '#EC4899',
-  paternity:     '#6366F1',
-  compassionate: '#F59E0B',
-  toil:          '#10B981',
+  annual:         '#2E86C1',
+  public_holiday: '#F59E0B',
+  sick:           '#EF4444',
+  casual:         '#8B5CF6',
+  unpaid:         '#9CA3AF',
+  maternity:      '#EC4899',
+  paternity:      '#6366F1',
+  compassionate:  '#D97706',
+  toil:           '#10B981',
 }
 
 type StatusTab = 'pending' | 'approved' | 'declined' | 'all'
@@ -293,10 +294,11 @@ export default function LeaveManagement() {
     approvedRequests.filter(r => r.type === type).reduce((s, r) => s + (r.days ?? 0), 0)
 
   const SUMMARY = [
-    { type: 'annual',  label: 'Annual Leave',  color: LEAVE_COLORS.annual  },
-    { type: 'sick',    label: 'Sick Leave',    color: LEAVE_COLORS.sick    },
-    { type: 'casual',  label: 'Casual Leave',  color: LEAVE_COLORS.casual  },
-    { type: 'unpaid',  label: 'Unpaid Leave',  color: LEAVE_COLORS.unpaid  },
+    { type: 'annual',         label: 'Annual Leave',    color: LEAVE_COLORS.annual         },
+    { type: 'public_holiday', label: 'Public Holidays', color: LEAVE_COLORS.public_holiday },
+    { type: 'sick',           label: 'Sick Leave',      color: LEAVE_COLORS.sick           },
+    { type: 'casual',         label: 'Casual Leave',    color: LEAVE_COLORS.casual         },
+    { type: 'unpaid',         label: 'Unpaid Leave',    color: LEAVE_COLORS.unpaid         },
   ]
 
   const TABS = [

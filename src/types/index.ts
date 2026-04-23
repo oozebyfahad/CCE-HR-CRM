@@ -151,7 +151,7 @@ export interface AttendanceRecord {
 }
 
 // ── Leave ─────────────────────────────────────────────────────────────
-export type LeaveType   = 'annual' | 'sick' | 'casual' | 'unpaid' | 'maternity' | 'paternity' | 'compassionate' | 'toil'
+export type LeaveType   = 'annual' | 'sick' | 'casual' | 'unpaid' | 'maternity' | 'paternity' | 'compassionate' | 'toil' | 'public_holiday'
 export type LeaveStatus = 'pending' | 'approved' | 'declined' | 'cancelled'
 
 export interface LeaveRequest {

@@ -54,10 +54,11 @@ export interface FirebaseEmployee {
   securityDeduction?: number   // PKR/month held as security deposit
   // Leave policy (allocations per employee)
   leavePolicy?: {
-    annual:  { total: number; paid: boolean }
-    sick:    { total: number; paid: boolean }
-    casual:  { total: number; paid: boolean }
-    unpaid:  { total: number; paid: boolean }
+    annual:          { total: number; paid: boolean }
+    sick:            { total: number; paid: boolean }
+    casual:          { total: number; paid: boolean }
+    unpaid:          { total: number; paid: boolean }
+    public_holiday:  { total: number; paid: boolean }
   }
   // Employment details
   manager?: string
