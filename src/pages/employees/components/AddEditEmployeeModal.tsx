@@ -241,6 +241,21 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                 <Field label="Character Certificate Expiry Date">
                   <input className={cn(inp, 'sm:w-1/2')} type="date" value={form.characterCertificateExpiry ?? ''} onChange={e => set('characterCertificateExpiry', e.target.value)} />
                 </Field>
+
+                <div className="border-t border-gray-100 pt-4">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Integrations</p>
+                  <Field label="RotaCloud User ID">
+                    <input
+                      className={cn(inp, 'sm:w-1/2')}
+                      type="number"
+                      min={1}
+                      value={form.rotacloudId ?? ''}
+                      onChange={e => set('rotacloudId', e.target.value ? Number(e.target.value) : undefined)}
+                      placeholder="e.g. 12345"
+                    />
+                    <p className="text-[11px] text-gray-400 mt-1">Found in RotaCloud → Staff → user profile URL. Links this employee to RotaCloud for shifts &amp; attendance.</p>
+                  </Field>
+                </div>
               </>
             )}
 
