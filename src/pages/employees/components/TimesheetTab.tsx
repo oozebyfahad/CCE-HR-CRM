@@ -10,7 +10,7 @@ import {
 } from '../../../hooks/useFirebaseTimesheets'
 import { useAppSelector } from '../../../store'
 import { cn } from '../../../utils/cn'
-import { fetchRotaAttendance, monthToUnix, type RotaAttendance } from '../../../services/rotacloud'
+import { fetchRotaAttendance, fetchRotaShifts, monthToUnix, type RotaAttendance, type RotaShift } from '../../../services/rotacloud'
 import { unixToHHMM, unixToLocalDate } from '../../../hooks/useRotaAttendance'
 
 // ── Constants ─────────────────────────────────────────────────────────
@@ -326,24 +326,55 @@ function isWeekend(dateStr: string): boolean {
   return d === 0 || d === 6
 }
 
+// Status badge used in the RotaCloud-style timesheet
+function StatusBadge({ status, approved }: { status: string; approved?: boolean }) {
+  const cfg: Record<string, { bg: string; text: string; label: string }> = {
+    live:     { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Live' },
+    present:  { bg: 'bg-green-100',   text: 'text-green-700',   label: 'Present' },
+    late:     { bg: 'bg-amber-100',   text: 'text-amber-700',   label: 'Late' },
+    half_day: { bg: 'bg-purple-100',  text: 'text-purple-700',  label: 'Half Day' },
+    absent:   { bg: 'bg-red-100',     text: 'text-red-600',     label: 'Absent' },
+    day_off:  { bg: 'bg-gray-100',    text: 'text-gray-400',    label: 'Day Off' },
+    future:   { bg: '',               text: 'text-gray-300',    label: '—' },
+  }
+  const s = cfg[status] ?? cfg.future
+  if (!s.bg) return <span className="text-[10px] text-gray-300">—</span>
+  return (
+    <span className={cn('inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap', s.bg, s.text)}>
+      {s.label}
+      {approved && status !== 'absent' && status !== 'day_off' && (
+        <CheckCircle2 size={9} className="shrink-0" />
+      )}
+    </span>
+  )
+}
+
 function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
-  const [month,   setMonth]   = useState(currentMonth)
-  const [records, setRecords] = useState<RotaAttendance[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState('')
+  const [month,      setMonth]      = useState(currentMonth)
+  const [attendance, setAttendance] = useState<RotaAttendance[]>([])
+  const [shifts,     setShifts]     = useState<RotaShift[]>([])
+  const [loading,    setLoading]    = useState(false)
+  const [error,      setError]      = useState('')
 
   const maxMonth = currentMonth()
+  const rcId = emp.rotacloudId ? Number(emp.rotacloudId) : null
+  const todayStr = new Date().toISOString().slice(0, 10)
 
   useEffect(() => {
-    if (!emp.rotacloudId) return
+    if (!rcId) return
     let cancelled = false
     setLoading(true)
     setError('')
     const { start, end } = monthToUnix(month)
-    fetchRotaAttendance(start, end)
-      .then(recs => {
+
+    Promise.all([
+      fetchRotaAttendance(start, end),
+      fetchRotaShifts(start, end),
+    ])
+      .then(([attRecs, shiftRecs]) => {
         if (!cancelled) {
-          setRecords(recs.filter(r => !r.deleted && r.user === emp.rotacloudId))
+          setAttendance(attRecs.filter(r => !r.deleted && r.user === rcId))
+          setShifts(shiftRecs.filter(s => !s.deleted && s.published && !s.open && s.user === rcId))
           setLoading(false)
         }
       })
@@ -354,32 +385,45 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
         }
       })
     return () => { cancelled = true }
-  }, [month, emp.rotacloudId])
+  }, [month, rcId])
 
-  // Index by local date (prefer approved record if multiple per day)
-  const byDate = new Map<string, RotaAttendance>()
-  for (const r of records) {
-    const d = unixToLocalDate(r.in_time)
-    const ex = byDate.get(d)
-    if (!ex || r.approved) byDate.set(d, r)
+  // Index attendance by date — use actual clock-in if present, else scheduled
+  const attByDate = new Map<string, RotaAttendance>()
+  for (const r of attendance) {
+    const unix = (r.in_time_clocked ?? r.in_time) as number
+    const d = unixToLocalDate(unix)
+    const ex = attByDate.get(d)
+    if (!ex || r.approved) attByDate.set(d, r)
   }
 
-  // Build day rows for the month
+  // Index shifts by date (scheduled start time)
+  const shiftByDate = new Map<string, RotaShift>()
+  for (const s of shifts) {
+    const d = unixToLocalDate(s.start_time)
+    if (!shiftByDate.has(d)) shiftByDate.set(d, s)
+  }
+
+  // All days of the month
   const [y, mo] = month.split('-').map(Number)
   const daysInMonth = new Date(y, mo, 0).getDate()
   const days = Array.from({ length: daysInMonth }, (_, i) => {
-    const dd  = String(i + 1).padStart(2, '0')
-    const str = `${month}-${dd}`
-    return { date: str, rec: byDate.get(str) }
+    const dd   = String(i + 1).padStart(2, '0')
+    const date = `${month}-${dd}`
+    return { date, att: attByDate.get(date), shift: shiftByDate.get(date) }
   })
 
-  // Monthly totals
-  const totalHours  = [...byDate.values()].reduce((s, r) => s + r.hours, 0)
-  const totalDays   = [...byDate.values()].filter(r => r.hours > 0 || r.in_time_clocked).length
-  const lateDays    = [...byDate.values()].filter(r => r.minutes_late > 30).length
-  const approvedDays = [...byDate.values()].filter(r => r.approved).length
+  // Totals
+  const attList      = [...attByDate.values()]
+  const totalHours   = attList.reduce((s, r) => s + r.hours, 0)
+  const totalDays    = attList.filter(r => r.hours > 0 || r.in_time_clocked).length
+  const lateDays     = attList.filter(r => r.minutes_late > 30).length
+  const approvedDays = attList.filter(r => r.approved).length
+  const overtimeH    = attList.reduce((s, r) => s + Math.max(0, r.hours - 8), 0)
+  const absentDays   = days.filter(({ date, att }) =>
+    !att && !isWeekend(date) && date < todayStr
+  ).length
 
-  if (!emp.rotacloudId) {
+  if (!rcId) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
         <AlertCircle size={28} className="text-gray-300" />
@@ -390,39 +434,47 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
 
-      {/* Month navigator */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => setMonth(m => prevMonth(m))}
-          disabled={month <= MIN_MONTH}
-          className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 transition disabled:opacity-30">
-          <ChevronLeft size={15} />
-        </button>
-        <p className="text-sm font-bold text-secondary min-w-[160px] text-center">{fmtMonth(month)}</p>
-        <button
-          onClick={() => setMonth(m => nextMonth(m))}
-          disabled={month >= maxMonth}
-          className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 transition disabled:opacity-30">
-          <ChevronRight size={15} />
-        </button>
-        {loading && <RefreshCw size={13} className="text-gray-400 animate-spin ml-1" />}
-      </div>
-
-      {/* Monthly summary tiles */}
-      <div className="grid grid-cols-4 gap-3">
-        {[
-          { label: 'Days Worked',   value: totalDays,                    color: 'text-green-600',  bg: 'bg-green-50'  },
-          { label: 'Total Hours',   value: fmtHours(totalHours),         color: 'text-primary',    bg: 'bg-blue-50'   },
-          { label: 'Late Days',     value: lateDays,                     color: 'text-amber-600',  bg: 'bg-amber-50'  },
-          { label: 'Approved',      value: `${approvedDays}d`,           color: 'text-violet-600', bg: 'bg-violet-50' },
-        ].map(s => (
-          <div key={s.label} className={`rounded-xl p-3 ${s.bg}`}>
-            <p className="text-[10px] text-gray-500 font-medium">{s.label}</p>
-            <p className={`text-xl font-bold mt-0.5 tabular-nums ${s.color}`}>{s.value}</p>
+      {/* ── Header: month nav + summary tiles ── */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        {/* Month navigator */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setMonth(m => prevMonth(m))}
+            disabled={month <= MIN_MONTH}
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 transition disabled:opacity-30 shrink-0">
+            <ChevronLeft size={15} />
+          </button>
+          <div className="text-center min-w-[160px]">
+            <p className="text-base font-bold text-secondary">{fmtMonth(month)}</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">RotaCloud Timesheet</p>
           </div>
-        ))}
+          <button
+            onClick={() => setMonth(m => nextMonth(m))}
+            disabled={month >= maxMonth}
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 transition disabled:opacity-30 shrink-0">
+            <ChevronRight size={15} />
+          </button>
+          {loading && <RefreshCw size={13} className="text-gray-400 animate-spin ml-2" />}
+        </div>
+
+        {/* Summary chips */}
+        <div className="flex flex-wrap gap-2 text-xs">
+          {[
+            { label: 'Worked',    value: `${totalDays}d`,           color: 'bg-green-50 text-green-700 border-green-200'   },
+            { label: 'Hours',     value: fmtHours(totalHours),      color: 'bg-blue-50 text-blue-700 border-blue-200'      },
+            { label: 'Overtime',  value: fmtHours(overtimeH),       color: 'bg-indigo-50 text-indigo-700 border-indigo-200'},
+            { label: 'Absent',    value: `${absentDays}d`,          color: 'bg-red-50 text-red-600 border-red-200'         },
+            { label: 'Late',      value: `${lateDays}d`,            color: 'bg-amber-50 text-amber-700 border-amber-200'   },
+            { label: 'Approved',  value: `${approvedDays}d`,        color: 'bg-violet-50 text-violet-700 border-violet-200'},
+          ].map(s => (
+            <div key={s.label} className={cn('border rounded-lg px-3 py-1.5 flex items-center gap-1.5', s.color)}>
+              <span className="font-medium opacity-70">{s.label}</span>
+              <span className="font-bold tabular-nums">{s.value}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Error */}
@@ -433,95 +485,202 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
         </div>
       )}
 
-      {/* Table */}
-      <div className="rounded-xl border border-gray-100 overflow-x-auto">
-        <table className="w-full text-sm min-w-[600px]">
+      {/* ── Timesheet table ── */}
+      <div className="rounded-xl border border-gray-200 overflow-x-auto shadow-sm">
+        <table className="w-full text-xs min-w-[780px] border-collapse">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-100">
-              {['Date', 'Day', 'Clock In', 'Clock Out', 'Hours', 'Break', 'Late', 'Status'].map(h => (
-                <th key={h} className="px-3 py-2.5 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
-              ))}
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="px-4 py-3 text-left font-bold text-gray-500 uppercase tracking-wide text-[10px] whitespace-nowrap w-24">Date</th>
+              <th className="px-3 py-3 text-left font-bold text-gray-500 uppercase tracking-wide text-[10px] w-12">Day</th>
+              <th className="px-3 py-3 text-center font-bold text-gray-400 uppercase tracking-wide text-[10px]" colSpan={2}>Scheduled</th>
+              <th className="px-3 py-3 text-center font-bold text-gray-600 uppercase tracking-wide text-[10px]" colSpan={2}>Actual Clock</th>
+              <th className="px-3 py-3 text-right font-bold text-gray-500 uppercase tracking-wide text-[10px] whitespace-nowrap">Break</th>
+              <th className="px-3 py-3 text-right font-bold text-gray-500 uppercase tracking-wide text-[10px] whitespace-nowrap">Hours</th>
+              <th className="px-3 py-3 text-right font-bold text-gray-500 uppercase tracking-wide text-[10px] whitespace-nowrap">Overtime</th>
+              <th className="px-3 py-3 text-right font-bold text-gray-500 uppercase tracking-wide text-[10px] whitespace-nowrap">Late</th>
+              <th className="px-4 py-3 text-center font-bold text-gray-500 uppercase tracking-wide text-[10px]">Status</th>
+            </tr>
+            {/* Sub-headers for Scheduled / Actual columns */}
+            <tr className="border-b border-gray-100 bg-gray-50/60">
+              <td colSpan={2} />
+              <td className="px-3 pb-2 text-center text-[9px] text-gray-400 font-semibold">Start</td>
+              <td className="px-3 pb-2 text-center text-[9px] text-gray-400 font-semibold">Finish</td>
+              <td className="px-3 pb-2 text-center text-[9px] text-gray-500 font-semibold">In</td>
+              <td className="px-3 pb-2 text-center text-[9px] text-gray-500 font-semibold">Out</td>
+              <td colSpan={5} />
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
-            {days.map(({ date, rec }) => {
-              const weekend = isWeekend(date)
-              const future  = date > toYMD(new Date())
-              const inHHMM  = rec?.in_time_clocked  ? unixToHHMM(rec.in_time_clocked)  : undefined
-              const outHHMM = rec?.out_time_clocked ? unixToHHMM(rec.out_time_clocked) : undefined
-              const stilIn  = !!rec?.in_time_clocked && !rec?.out_time_clocked
+          <tbody>
+            {days.map(({ date, att, shift }) => {
+              const weekend  = isWeekend(date)
+              const future   = date > todayStr
+              const isToday  = date === todayStr
+              const stilIn   = !!att?.in_time_clocked && !att?.out_time_clocked
 
-              let statusLabel = '—'
-              let statusCls   = 'text-gray-300'
-              if (rec) {
-                if (stilIn)                    { statusLabel = 'Live';    statusCls = 'text-green-600 font-semibold' }
-                else if (rec.hours >= 4 && rec.minutes_late > 30) { statusLabel = 'Late';    statusCls = 'text-amber-600 font-semibold' }
-                else if (rec.hours > 0 && rec.hours < 4)          { statusLabel = 'Half day'; statusCls = 'text-purple-600 font-semibold' }
-                else if (rec.hours >= 4)                           { statusLabel = 'Present'; statusCls = 'text-green-600 font-semibold' }
-                else                                               { statusLabel = 'No hours'; statusCls = 'text-gray-400' }
-              } else if (weekend) {
-                statusLabel = 'Weekend'; statusCls = 'text-gray-300'
-              } else if (!future) {
-                statusLabel = 'Absent'; statusCls = 'text-red-400 font-semibold'
+              // Scheduled times from shift
+              const schedIn  = shift ? unixToHHMM(shift.start_time) : undefined
+              const schedOut = shift ? unixToHHMM(shift.end_time)   : undefined
+
+              // Actual clock times from attendance
+              const clockIn  = att?.in_time_clocked  ? unixToHHMM(att.in_time_clocked)  : undefined
+              const clockOut = att?.out_time_clocked ? unixToHHMM(att.out_time_clocked) : undefined
+
+              // Derive status
+              let status = 'future'
+              if (weekend && !att) {
+                status = 'day_off'
+              } else if (att) {
+                if (stilIn)                                            status = 'live'
+                else if (att.hours > 0 && att.hours < 4)             status = 'half_day'
+                else if (att.hours >= 4 && att.minutes_late > 30)    status = 'late'
+                else if (att.hours >= 4)                              status = 'present'
+                else                                                   status = 'present'
+              } else if (!future && !weekend) {
+                status = 'absent'
               }
 
+              const dimmed     = weekend || future
+              const rowBg      = isToday   ? 'bg-blue-50/40'
+                               : status === 'absent' ? 'bg-red-50/30'
+                               : weekend  ? 'bg-gray-50/60'
+                               : 'bg-white hover:bg-gray-50/50'
+
+              const txtBase    = dimmed ? 'text-gray-300' : 'text-gray-700'
+              const txtMuted   = dimmed ? 'text-gray-300' : 'text-gray-400'
+
               return (
-                <tr key={date} className={cn(
-                  'transition-colors',
-                  weekend ? 'bg-gray-50/50' : 'hover:bg-gray-50/60',
-                )}>
-                  <td className={cn('px-3 py-2 text-xs', weekend ? 'text-gray-300' : 'text-gray-700')}>
-                    {new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                <tr key={date} className={cn('border-b border-gray-100 last:border-0 transition-colors', rowBg)}>
+
+                  {/* Date */}
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-2">
+                      {isToday && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                      <span className={cn('font-semibold tabular-nums', isToday ? 'text-primary' : txtBase)}>
+                        {new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      </span>
+                    </div>
                   </td>
-                  <td className={cn('px-3 py-2 text-xs', weekend ? 'text-gray-300' : 'text-gray-500')}>
-                    {dayOfWeek(date)}
+
+                  {/* Day */}
+                  <td className={cn('px-3 py-2.5', txtMuted)}>{dayOfWeek(date)}</td>
+
+                  {/* Scheduled Start */}
+                  <td className={cn('px-3 py-2.5 text-center font-mono', txtMuted)}>
+                    {schedIn ? fmt12(schedIn) : <span className="text-gray-200">—</span>}
                   </td>
-                  <td className="px-3 py-2 text-xs font-mono text-gray-600">
-                    {inHHMM ? fmt12(inHHMM) : <span className="text-gray-200">—</span>}
+
+                  {/* Scheduled Finish */}
+                  <td className={cn('px-3 py-2.5 text-center font-mono', txtMuted)}>
+                    {schedOut ? fmt12(schedOut) : <span className="text-gray-200">—</span>}
                   </td>
-                  <td className="px-3 py-2 text-xs font-mono text-gray-600">
-                    {stilIn
-                      ? <span className="text-green-500 font-semibold animate-pulse">Live</span>
-                      : outHHMM ? fmt12(outHHMM) : <span className="text-gray-200">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-xs font-semibold text-gray-700">
-                    {rec?.hours ? fmtHours(rec.hours) : <span className="text-gray-200">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-gray-400">
-                    {rec?.minutes_break ? `${rec.minutes_break}m` : <span className="text-gray-200">—</span>}
-                  </td>
-                  <td className="px-3 py-2 text-xs">
-                    {rec?.minutes_late && rec.minutes_late > 0
-                      ? <span className="text-amber-500 font-semibold">{rec.minutes_late}m</span>
+
+                  {/* Actual Clock In */}
+                  <td className="px-3 py-2.5 text-center">
+                    {clockIn
+                      ? <span className={cn('font-mono font-semibold', att?.minutes_late && att.minutes_late > 0 ? 'text-amber-600' : 'text-gray-700')}>
+                          {fmt12(clockIn)}
+                          {att?.minutes_late && att.minutes_late > 0
+                            ? <span className="ml-1 text-[9px] text-amber-500">+{att.minutes_late}m</span>
+                            : null}
+                        </span>
                       : <span className="text-gray-200">—</span>}
                   </td>
-                  <td className={cn('px-3 py-2 text-xs', statusCls)}>
-                    {statusLabel}
-                    {rec?.approved && statusLabel !== '—' && statusLabel !== 'Weekend' && (
-                      <CheckCircle2 size={10} className="inline ml-1 text-green-400" />
-                    )}
+
+                  {/* Actual Clock Out */}
+                  <td className="px-3 py-2.5 text-center">
+                    {stilIn
+                      ? <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />Live
+                        </span>
+                      : clockOut
+                        ? <span className="font-mono font-semibold text-gray-700">{fmt12(clockOut)}</span>
+                        : <span className="text-gray-200">—</span>}
+                  </td>
+
+                  {/* Break */}
+                  <td className={cn('px-3 py-2.5 text-right tabular-nums', txtMuted)}>
+                    {att?.minutes_break ? `${att.minutes_break}m` : <span className="text-gray-200">—</span>}
+                  </td>
+
+                  {/* Hours */}
+                  <td className="px-3 py-2.5 text-right">
+                    {att?.hours
+                      ? <span className="font-bold text-gray-800 tabular-nums">{fmtHours(att.hours)}</span>
+                      : <span className="text-gray-200">—</span>}
+                  </td>
+
+                  {/* Overtime */}
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {att?.hours && att.hours > 8
+                      ? <span className="text-indigo-600 font-semibold">{fmtHours(att.hours - 8)}</span>
+                      : <span className="text-gray-200">—</span>}
+                  </td>
+
+                  {/* Late */}
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {att?.minutes_late && att.minutes_late > 0
+                      ? <span className="text-amber-600 font-semibold">{att.minutes_late}m</span>
+                      : <span className="text-gray-200">—</span>}
+                  </td>
+
+                  {/* Status */}
+                  <td className="px-4 py-2.5 text-center">
+                    <StatusBadge status={status} approved={att?.approved} />
                   </td>
                 </tr>
               )
             })}
           </tbody>
-          {/* Totals row */}
-          {totalHours > 0 && (
-            <tfoot>
-              <tr className="bg-gray-50 border-t border-gray-100 font-semibold">
-                <td colSpan={4} className="px-3 py-2.5 text-xs text-gray-500">Monthly Total</td>
-                <td className="px-3 py-2.5 text-xs text-primary">{fmtHours(totalHours)}</td>
-                <td colSpan={3} className="px-3 py-2.5 text-xs text-gray-400">{totalDays} days · {lateDays} late</td>
-              </tr>
-            </tfoot>
-          )}
+
+          {/* Monthly totals footer */}
+          <tfoot>
+            <tr className="bg-gray-50 border-t-2 border-gray-200">
+              <td colSpan={4} className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">
+                Monthly Total — {totalDays} days worked
+              </td>
+              <td colSpan={2} />
+              <td className="px-3 py-3 text-right text-xs font-bold text-gray-600 tabular-nums">
+                {attList.reduce((s, r) => s + r.minutes_break, 0)}m
+              </td>
+              <td className="px-3 py-3 text-right text-xs font-bold text-primary tabular-nums">
+                {fmtHours(totalHours)}
+              </td>
+              <td className="px-3 py-3 text-right text-xs font-bold text-indigo-600 tabular-nums">
+                {fmtHours(overtimeH)}
+              </td>
+              <td className="px-3 py-3 text-right text-xs text-gray-400 tabular-nums">
+                {lateDays}d late
+              </td>
+              <td className="px-4 py-3 text-center">
+                <span className="text-[10px] text-violet-600 font-semibold">{approvedDays} approved</span>
+              </td>
+            </tr>
+          </tfoot>
         </table>
 
-        {!loading && totalDays === 0 && !error && (
-          <div className="py-10 text-center text-xs text-gray-400">
-            No RotaCloud attendance records for {fmtMonth(month)}.
+        {!loading && days.length > 0 && totalDays === 0 && !error && (
+          <div className="py-8 text-center text-xs text-gray-400">
+            No clock-in records found in RotaCloud for {fmtMonth(month)}.
           </div>
         )}
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-3 text-[10px] text-gray-400">
+        {[
+          { dot: 'bg-emerald-500', label: 'Live — currently clocked in' },
+          { dot: 'bg-green-500',   label: 'Present' },
+          { dot: 'bg-amber-500',   label: 'Late > 30 min' },
+          { dot: 'bg-purple-500',  label: 'Half Day < 4 h' },
+          { dot: 'bg-red-400',     label: 'Absent (no clock-in)' },
+        ].map(l => (
+          <span key={l.label} className="flex items-center gap-1.5">
+            <span className={cn('w-2 h-2 rounded-full shrink-0', l.dot)} />{l.label}
+          </span>
+        ))}
+        <span className="flex items-center gap-1.5">
+          <CheckCircle2 size={10} className="text-green-500 shrink-0" />Approved by manager
+        </span>
       </div>
     </div>
   )
