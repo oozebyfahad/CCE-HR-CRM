@@ -1,7 +1,7 @@
 // RotaCloud API service — all calls go via the Netlify proxy function.
 // The API key never reaches the browser.
 
-const PROXY = '/.netlify/functions/rotacloud'
+const PROXY = '/api/rotacloud'
 
 async function rotaCall<T>(
   path: string,
