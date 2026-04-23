@@ -26,7 +26,7 @@ type Tab = typeof PRIMARY_TABS[number] | typeof MORE_TABS[number]
 // ── Leave config ──────────────────────────────────────────────────────
 type LeaveKey = 'annual' | 'sick' | 'casual' | 'unpaid'
 const LEAVE_TYPES: { key: LeaveKey; label: string; color: string; defaultTotal: number; defaultPaid: boolean }[] = [
-  { key: 'annual',  label: 'Annual Leave',  color: '#2E86C1', defaultTotal: 20, defaultPaid: true  },
+  { key: 'annual',  label: 'Annual Leave',  color: '#2E86C1', defaultTotal: 10, defaultPaid: true  },
   { key: 'sick',    label: 'Sick Leave',    color: '#10B981', defaultTotal: 10, defaultPaid: true  },
   { key: 'casual',  label: 'Casual Leave',  color: '#8B5CF6', defaultTotal: 5,  defaultPaid: true  },
   { key: 'unpaid',  label: 'Unpaid Leave',  color: '#9CA3AF', defaultTotal: 0,  defaultPaid: false },
@@ -197,7 +197,7 @@ export default function EmployeeProfile() {
     if (!emp) return
     const policy = emp.leavePolicy
     setLeaveDraft({
-      annual:  { total: policy?.annual?.total  ?? 20, paid: policy?.annual?.paid  ?? true  },
+      annual:  { total: policy?.annual?.total  ?? 10, paid: policy?.annual?.paid  ?? true  },
       sick:    { total: policy?.sick?.total    ?? 10, paid: policy?.sick?.paid    ?? true  },
       casual:  { total: policy?.casual?.total  ?? 5,  paid: policy?.casual?.paid  ?? true  },
       unpaid:  { total: policy?.unpaid?.total  ?? 0,  paid: policy?.unpaid?.paid  ?? false },
