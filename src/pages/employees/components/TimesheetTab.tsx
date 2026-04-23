@@ -517,13 +517,15 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
               const isToday  = date === todayStr
               const stilIn   = !!att?.in_time_clocked && !att?.out_time_clocked
 
-              // Scheduled times from shift
+              // Scheduled times from published shift record
               const schedIn  = shift ? unixToHHMM(shift.start_time) : undefined
               const schedOut = shift ? unixToHHMM(shift.end_time)   : undefined
 
-              // Actual clock times from attendance
-              const clockIn  = att?.in_time_clocked  ? unixToHHMM(att.in_time_clocked)  : undefined
-              const clockOut = att?.out_time_clocked ? unixToHHMM(att.out_time_clocked) : undefined
+              // Actual clock times — fall back to att.in_time/out_time for timesheet entries
+              const clockInActual  = att?.in_time_clocked  ? unixToHHMM(att.in_time_clocked)  : undefined
+              const clockOutActual = att?.out_time_clocked ? unixToHHMM(att.out_time_clocked) : undefined
+              const clockInLogged  = att && !clockInActual  ? unixToHHMM(att.in_time)  : undefined
+              const clockOutLogged = att && !clockOutActual ? unixToHHMM(att.out_time) : undefined
 
               // Derive status
               let status = 'future'
@@ -574,27 +576,31 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
                     {schedOut ? fmt12(schedOut) : <span className="text-gray-200">—</span>}
                   </td>
 
-                  {/* Actual Clock In */}
+                  {/* Actual Clock In (terminal) or logged start time */}
                   <td className="px-3 py-2.5 text-center">
-                    {clockIn
+                    {clockInActual
                       ? <span className={cn('font-mono font-semibold', att?.minutes_late && att.minutes_late > 0 ? 'text-amber-600' : 'text-gray-700')}>
-                          {fmt12(clockIn)}
+                          {fmt12(clockInActual)}
                           {att?.minutes_late && att.minutes_late > 0
                             ? <span className="ml-1 text-[9px] text-amber-500">+{att.minutes_late}m</span>
                             : null}
                         </span>
-                      : <span className="text-gray-200">—</span>}
+                      : clockInLogged
+                        ? <span className="font-mono text-gray-400" title="Logged time (no terminal clock-in)">{fmt12(clockInLogged)}</span>
+                        : <span className="text-gray-200">—</span>}
                   </td>
 
-                  {/* Actual Clock Out */}
+                  {/* Actual Clock Out (terminal) or logged finish time */}
                   <td className="px-3 py-2.5 text-center">
                     {stilIn
                       ? <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />Live
                         </span>
-                      : clockOut
-                        ? <span className="font-mono font-semibold text-gray-700">{fmt12(clockOut)}</span>
-                        : <span className="text-gray-200">—</span>}
+                      : clockOutActual
+                        ? <span className="font-mono font-semibold text-gray-700">{fmt12(clockOutActual)}</span>
+                        : clockOutLogged
+                          ? <span className="font-mono text-gray-400" title="Logged time (no terminal clock-out)">{fmt12(clockOutLogged)}</span>
+                          : <span className="text-gray-200">—</span>}
                   </td>
 
                   {/* Break */}
