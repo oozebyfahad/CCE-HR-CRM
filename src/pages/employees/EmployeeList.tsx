@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Plus, Download, MoreHorizontal, Eye, Pencil, Trash2, Users, Filter, DatabaseZap, ArrowUpDown, Check, FileUp } from 'lucide-react'
+import { Search, Plus, Download, MoreHorizontal, Eye, Pencil, Trash2, Users, Filter, DatabaseZap, ArrowUpDown, Check, FileUp, RefreshCw, X, AlertCircle } from 'lucide-react'
+import { fetchRotaUsers, fetchRotaRoles, rotaUserName, type RotaUser, type RotaRole } from '../../services/rotacloud'
 import { useAppSelector } from '../../store'
 import { format, isValid } from 'date-fns'
 
@@ -121,6 +122,220 @@ function SortMenu({ value, onChange }: { value: SortKey; onChange: (k: SortKey) 
   )
 }
 
+// ── RotaCloud Import Modal ──────────────────────────────────────────────
+function RotacloudImportModal({
+  existing,
+  onImport,
+  onClose,
+}: {
+  existing: FirebaseEmployee[]
+  onImport: (emps: Omit<FirebaseEmployee, 'id'>[]) => Promise<void>
+  onClose: () => void
+}) {
+  const [loading,   setLoading]   = useState(true)
+  const [error,     setError]     = useState('')
+  const [rotaUsers, setRotaUsers] = useState<RotaUser[]>([])
+  const [roleMap,   setRoleMap]   = useState<Record<number, string>>({})
+  const [selected,  setSelected]  = useState<Set<number>>(new Set())
+  const [importing, setImporting] = useState(false)
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const [users, roles] = await Promise.all([fetchRotaUsers(), fetchRotaRoles()])
+
+        // Build role ID → name map
+        const rm: Record<number, string> = {}
+        ;(roles as RotaRole[]).forEach(r => { rm[r.id] = r.name })
+        setRoleMap(rm)
+
+        // Filter out employees already in Firestore (by email or rotacloudId)
+        const existingEmails  = new Set(existing.map(e => e.email?.toLowerCase().trim()).filter(Boolean))
+        const existingRotaIds = new Set(existing.map(e => e.rotacloudId).filter(Boolean))
+
+        const newUsers = (users as RotaUser[]).filter(u =>
+          !u.deleted &&
+          !existingRotaIds.has(u.id) &&
+          !(u.email && existingEmails.has(u.email.toLowerCase().trim()))
+        )
+
+        setRotaUsers(newUsers)
+        // Select all by default
+        setSelected(new Set(newUsers.map(u => u.id)))
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to fetch from RotaCloud')
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [])
+
+  const toggleAll = () =>
+    setSelected(s => s.size === rotaUsers.length ? new Set() : new Set(rotaUsers.map(u => u.id)))
+
+  const toggle = (id: number) =>
+    setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  const mapEmploymentType = (v?: string | null): string => {
+    if (!v) return 'full_time'
+    const l = v.toLowerCase()
+    if (l.includes('part')) return 'part_time'
+    if (l.includes('contract')) return 'contract'
+    return 'full_time'
+  }
+
+  const handleImport = async () => {
+    setImporting(true)
+    const toAdd = rotaUsers
+      .filter(u => selected.has(u.id))
+      .map(u => ({
+        name:           rotaUserName(u),
+        email:          u.email ?? '',
+        phone:          u.phone ?? '',
+        employeeId:     `RC-${u.id}`,
+        jobTitle:       u.default_role ? (roleMap[u.default_role] ?? 'Staff') : 'Staff',
+        department:     '',
+        employmentType: mapEmploymentType(u.employment_type),
+        payType:        (u.salary_type === 'salaried' ? 'fixed_monthly' : 'hourly') as 'hourly' | 'fixed_monthly',
+        status:         'active',
+        startDate:      u.start_date ?? '',
+        rotacloudId:    u.id,
+        gender:         u.gender ?? undefined,
+        dob:            u.dob    ?? undefined,
+        currentAddress: u.address_1 ?? undefined,
+        currentCity:    u.city      ?? undefined,
+        emergencyContactName:     u.emergency_contact_name         ?? undefined,
+        emergencyContactPhone:    u.emergency_contact_phone        ?? undefined,
+        emergencyContactRelation: u.emergency_contact_relationship ?? undefined,
+      } as Omit<FirebaseEmployee, 'id'>))
+    await onImport(toAdd)
+  }
+
+  const allChecked = selected.size === rotaUsers.length && rotaUsers.length > 0
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+          <div>
+            <h3 className="text-base font-bold text-secondary">Import from RotaCloud</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {loading ? 'Fetching employees…' : `${rotaUsers.length} new employee${rotaUsers.length !== 1 ? 's' : ''} not yet in your directory`}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition">
+            <X size={16} className="text-gray-400" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto">
+          {loading && (
+            <div className="flex items-center justify-center gap-2 py-16 text-gray-400 text-sm">
+              <RefreshCw size={16} className="animate-spin" /> Fetching from RotaCloud…
+            </div>
+          )}
+
+          {error && (
+            <div className="m-6 flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+              <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-red-700">Failed to fetch</p>
+                <p className="text-xs text-red-600 mt-0.5">{error}</p>
+                <p className="text-xs text-gray-500 mt-1">Make sure <code className="bg-gray-100 px-1 rounded">ROTACLOUD_API_KEY</code> is set in Netlify environment variables.</p>
+              </div>
+            </div>
+          )}
+
+          {!loading && !error && rotaUsers.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
+              <Users size={32} strokeWidth={1.2} />
+              <p className="text-sm">All RotaCloud employees are already in your directory.</p>
+            </div>
+          )}
+
+          {!loading && !error && rotaUsers.length > 0 && (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/60">
+                  <th className="px-4 py-3 w-10">
+                    <input type="checkbox" checked={allChecked} onChange={toggleAll}
+                      className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary/20 cursor-pointer" />
+                  </th>
+                  {['Name', 'Email', 'Role', 'Pay Type'].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {rotaUsers.map(u => {
+                  const name = rotaUserName(u)
+                  const role = u.default_role ? (roleMap[u.default_role] ?? '—') : '—'
+                  const payType = u.salary_type === 'salaried' ? 'Fixed Monthly' : 'Hourly'
+                  return (
+                    <tr key={u.id}
+                      onClick={() => toggle(u.id)}
+                      className="hover:bg-gray-50/60 cursor-pointer transition">
+                      <td className="px-4 py-3">
+                        <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggle(u.id)}
+                          onClick={e => e.stopPropagation()}
+                          className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary/20 cursor-pointer" />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] font-bold shrink-0">
+                            {name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                          </div>
+                          <span className="text-sm font-medium text-secondary">{name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500 truncate max-w-[160px]">{u.email}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{role}</td>
+                      <td className="px-4 py-3">
+                        <span className={cn(
+                          'text-[10px] font-semibold px-2 py-0.5 rounded-full',
+                          u.salary_type === 'salaried'
+                            ? 'bg-purple-100 text-purple-700'
+                            : 'bg-blue-100 text-blue-700'
+                        )}>{payType}</span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Footer */}
+        {!loading && !error && rotaUsers.length > 0 && (
+          <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/40 flex items-center justify-between shrink-0">
+            <p className="text-xs text-gray-400">
+              {selected.size} of {rotaUsers.length} selected
+            </p>
+            <div className="flex gap-2">
+              <button onClick={onClose}
+                className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition">
+                Cancel
+              </button>
+              <button
+                onClick={handleImport}
+                disabled={importing || selected.size === 0}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-secondary text-white text-sm font-semibold hover:bg-secondary/90 transition disabled:opacity-50">
+                {importing
+                  ? <><RefreshCw size={13} className="animate-spin" /> Importing…</>
+                  : <><Plus size={13} /> Import {selected.size} Employee{selected.size !== 1 ? 's' : ''}</>}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Status dot ──────────────────────────────────────────────────────────
 const statusDot: Record<string, string> = {
   active: '#22c55e', on_leave: '#3b82f6', suspended: '#f59e0b',
@@ -149,7 +364,8 @@ export default function EmployeeList() {
   const [editEmp,   setEditEmp]   = useState<FirebaseEmployee | null>(null)
   const [deleteEmp, setDeleteEmp] = useState<FirebaseEmployee | null>(null)
 
-  const [importOpen, setImportOpen] = useState(false)
+  const [importOpen,       setImportOpen]       = useState(false)
+  const [rotaImportOpen,   setRotaImportOpen]   = useState(false)
   const [toast,    setToast]    = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [seeding,  setSeeding]  = useState(false)
 
@@ -244,6 +460,9 @@ export default function EmployeeList() {
             </button>
             <button onClick={() => setImportOpen(true)} className="btn-outline text-sm gap-2">
               <FileUp size={14} /> Import Excel
+            </button>
+            <button onClick={() => setRotaImportOpen(true)} className="btn-outline text-sm gap-2">
+              <RefreshCw size={14} /> From RotaCloud
             </button>
             <button onClick={() => setAddOpen(true)} className="btn-primary text-sm gap-2">
               <Plus size={14} /> Add Employee
@@ -417,6 +636,17 @@ export default function EmployeeList() {
       {/* ── Modals ── */}
       {importOpen && (
         <ImportEmployeeModal onImport={handleImportEmployees} onClose={() => setImportOpen(false)} />
+      )}
+      {rotaImportOpen && (
+        <RotacloudImportModal
+          existing={employees}
+          onImport={async emps => {
+            for (const e of emps) await addEmployee(e)
+            notify(`${emps.length} employee${emps.length !== 1 ? 's' : ''} imported from RotaCloud`)
+            setRotaImportOpen(false)
+          }}
+          onClose={() => setRotaImportOpen(false)}
+        />
       )}
       {addOpen && (
         <AddEditEmployeeModal onSave={handleAdd} onClose={() => setAddOpen(false)} />
