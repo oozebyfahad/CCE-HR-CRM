@@ -434,8 +434,8 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
       )}
 
       {/* Table */}
-      <div className="rounded-xl border border-gray-100 overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-xl border border-gray-100 overflow-x-auto">
+        <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-100">
               {['Date', 'Day', 'Clock In', 'Clock Out', 'Hours', 'Break', 'Late', 'Status'].map(h => (
@@ -470,8 +470,8 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
                   'transition-colors',
                   weekend ? 'bg-gray-50/50' : 'hover:bg-gray-50/60',
                 )}>
-                  <td className={cn('px-3 py-2 text-xs font-mono', weekend ? 'text-gray-300' : 'text-gray-700')}>
-                    {date.slice(5)} {/* MM-DD */}
+                  <td className={cn('px-3 py-2 text-xs', weekend ? 'text-gray-300' : 'text-gray-700')}>
+                    {new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                   </td>
                   <td className={cn('px-3 py-2 text-xs', weekend ? 'text-gray-300' : 'text-gray-500')}>
                     {dayOfWeek(date)}
