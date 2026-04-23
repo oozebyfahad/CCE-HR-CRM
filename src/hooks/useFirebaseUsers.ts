@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  collection, query, onSnapshot, updateDoc, doc, orderBy,
+  collection, query, onSnapshot, updateDoc, doc, orderBy, deleteDoc,
 } from 'firebase/firestore'
 import { db } from '../config/firebase'
 import type { UserRole } from '../types'
@@ -47,5 +47,9 @@ export function useFirebaseUsers() {
     })
   }
 
-  return { users, loading, updateUserRole, sendNotification, markNotificationRead }
+  const deleteUserRecord = async (uid: string) => {
+    await deleteDoc(doc(db, 'users', uid))
+  }
+
+  return { users, loading, updateUserRole, sendNotification, markNotificationRead, deleteUserRecord }
 }

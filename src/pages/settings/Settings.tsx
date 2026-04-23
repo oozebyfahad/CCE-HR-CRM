@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Save, Shield, Bell, Palette, Globe, Database, Users, Pencil, X, Send, Check, UserPlus, Eye, EyeOff, Building2, Link, RefreshCw, CheckCircle2, AlertCircle, Unlink } from 'lucide-react'
+import { Save, Shield, Bell, Palette, Globe, Database, Users, Pencil, X, Send, Check, UserPlus, Eye, EyeOff, Building2, Link, RefreshCw, CheckCircle2, AlertCircle, Unlink, Trash2 } from 'lucide-react'
 import { doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { fetchRotaUsers, rotaUserName, type RotaUser } from '../../services/rotacloud'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
@@ -90,6 +90,89 @@ function NotifyModal({
             </div>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ── Delete user modal ───────────────────────────────────────────────────
+function DeleteUserModal({
+  user, onConfirm, onClose,
+}: { user: FirebaseUser; onConfirm: () => Promise<void>; onClose: () => void }) {
+  const [confirm,  setConfirm]  = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [error,    setError]    = useState('')
+  const match = user.name.trim().toLowerCase()
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    setError('')
+    try {
+      await onConfirm()
+      onClose()
+    } catch {
+      setError('Failed to delete. Please try again.')
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-red-100 rounded-xl flex items-center justify-center shrink-0">
+              <Trash2 size={16} className="text-red-600" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-800">Delete Account</p>
+              <p className="text-xs text-gray-400 truncate max-w-[200px]">{user.email}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition">
+            <X size={15} className="text-gray-500" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Warning */}
+          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 space-y-1">
+            <p className="text-xs font-bold text-red-700">This action cannot be undone.</p>
+            <p className="text-xs text-red-600 leading-relaxed">
+              <strong>{user.name}</strong>'s app access will be revoked immediately. They will not be able to log in.
+            </p>
+          </div>
+
+          {/* Confirmation input */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-1.5">
+              Type <span className="font-bold text-gray-700">{user.name}</span> to confirm
+            </label>
+            <input
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-400 transition"
+              placeholder={user.name}
+              value={confirm}
+              onChange={e => setConfirm(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && confirm.trim().toLowerCase() === match && handleDelete()}
+            />
+          </div>
+
+          {error && <p className="text-xs text-red-500">{error}</p>}
+        </div>
+
+        <div className="px-5 pb-5 flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">
+            Cancel
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={confirm.trim().toLowerCase() !== match || deleting}
+            className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition disabled:opacity-40 flex items-center justify-center gap-1.5">
+            <Trash2 size={13} />
+            {deleting ? 'Deleting…' : 'Delete Account'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -269,10 +352,11 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
 // ── Access Levels panel ─────────────────────────────────────────────────
 function AccessLevels() {
   const currentUser = useAppSelector(s => s.auth.user)
-  const { users, loading, updateUserRole, sendNotification } = useFirebaseUsers()
+  const { users, loading, updateUserRole, sendNotification, deleteUserRecord } = useFirebaseUsers()
 
   const [editTarget,     setEditTarget]     = useState<{ id: string; name: string; role: UserRole } | null>(null)
   const [notifyTarget,   setNotifyTarget]   = useState<{ id: string; name: string } | null>(null)
+  const [deleteTarget,   setDeleteTarget]   = useState<FirebaseUser | null>(null)
   const [showCreate,     setShowCreate]     = useState(false)
   const [resetSent,      setResetSent]      = useState<string | null>(null)
   const [addToCompany,   setAddToCompany]   = useState<FirebaseUser | null>(null)
@@ -326,7 +410,7 @@ function AccessLevels() {
         ) : (
           <div className="border border-gray-100 rounded-xl overflow-hidden">
             {/* Header */}
-            <div className="px-4 py-2.5 bg-gray-50 grid grid-cols-[1fr_1fr_120px_150px] gap-3 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+            <div className="px-4 py-2.5 bg-gray-50 grid grid-cols-[1fr_1fr_120px_180px] gap-3 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
               <span>Name</span>
               <span>Designation</span>
               <span>Role</span>
@@ -335,7 +419,7 @@ function AccessLevels() {
             {/* Rows */}
             {users.map(u => (
               <div key={u.id}
-                className="px-4 py-3 grid grid-cols-[1fr_1fr_120px_150px] gap-3 items-center border-t border-gray-50 hover:bg-gray-50/50 transition">
+                className="px-4 py-3 grid grid-cols-[1fr_1fr_120px_180px] gap-3 items-center border-t border-gray-50 hover:bg-gray-50/50 transition">
                 <div>
                   <p className="text-sm font-semibold text-gray-800 truncate">{u.name}</p>
                   <p className="text-xs text-gray-400 truncate">{u.email}</p>
@@ -376,6 +460,12 @@ function AccessLevels() {
                           <Building2 size={13} />
                         </button>
                       )}
+                      <button
+                        onClick={() => setDeleteTarget(u)}
+                        title="Delete account"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-100 transition text-red-400 hover:text-red-600">
+                        <Trash2 size={13} />
+                      </button>
                     </>
                   )}
                   {u.id === currentUser?.id && (
@@ -406,6 +496,14 @@ function AccessLevels() {
       )}
 
       {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} />}
+
+      {deleteTarget && (
+        <DeleteUserModal
+          user={deleteTarget}
+          onConfirm={() => deleteUserRecord(deleteTarget.id)}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
 
       {addToCompany && roleToCollection(addToCompany.role) && (
         <AddEditEmployeeModal
