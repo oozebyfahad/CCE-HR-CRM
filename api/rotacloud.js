@@ -45,7 +45,7 @@ export default async function handler(req, res) {
     let offset = 0
     let total = null
 
-    do {
+    while (true) {
       const url = new URL(`${BASE}/${path}`)
       const pageParams = { ...params, limit: LIMIT, offset }
       Object.entries(pageParams).forEach(([k, v]) => {
@@ -70,7 +70,10 @@ export default async function handler(req, res) {
       offset += LIMIT
 
       if (all.length >= 5000) break
-    } while (total !== null && all.length < total)
+
+      // Stop when we know total and have reached it, or when last page was partial
+      if (total !== null ? all.length >= total : page.length < LIMIT) break
+    }
 
     return res.status(200).json({ data: all, total: all.length })
   } catch (err) {
