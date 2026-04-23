@@ -64,7 +64,7 @@ export default function Attendance() {
   const [statusFilter, setStatusFilter] = useState('All')
 
   const { employees } = useFirebaseEmployees()
-  const { rows, weeklyData, counts, loading, error } = useRotaAttendance(selectedDate, employees)
+  const { rows, weeklyData, counts, loading, error, rawRecordCount, linkedCount } = useRotaAttendance(selectedDate, employees)
 
   const today   = toYMD(new Date())
   const isToday = selectedDate === today
@@ -136,6 +136,17 @@ export default function Attendance() {
           <Link to="/settings" className="flex items-center gap-1 text-xs text-amber-700 font-semibold shrink-0">
             Link now <ExternalLink size={11} />
           </Link>
+        </div>
+      )}
+
+      {/* ── Debug bar ── */}
+      {!loading && (
+        <div className="flex items-center gap-4 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs text-gray-500 flex-wrap">
+          <span>🔌 RotaCloud records fetched: <strong className={rawRecordCount > 0 ? 'text-green-600' : 'text-red-500'}>{rawRecordCount}</strong></span>
+          <span className="text-gray-300">|</span>
+          <span>🔗 Employees linked to RotaCloud: <strong className={linkedCount > 0 ? 'text-green-600' : 'text-red-500'}>{linkedCount}</strong> / {employees.filter(e => e.status === 'active').length}</span>
+          <span className="text-gray-300">|</span>
+          <span>📅 Date: <strong>{selectedDate}</strong></span>
         </div>
       )}
 

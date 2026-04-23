@@ -161,5 +161,7 @@ export function useRotaAttendance(date: string, employees: FirebaseEmployee[]) {
     not_clocked_in: rows.filter(r => r.status === 'not_clocked_in').length,
   }
 
-  return { rows, weeklyData, counts, loading, error }
+  const linkedCount = activeEmployees.filter(e => !!e.rotacloudId).length
+
+  return { rows, weeklyData, counts, loading, error, rawRecordCount: records.length, linkedCount }
 }
