@@ -3,7 +3,7 @@ import { CalendarDays, Plus, CheckCircle2, X } from 'lucide-react'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 import { useFirebaseLeave } from '../../hooks/useFirebaseLeave'
 import type { LeaveType } from '../../types'
 
@@ -132,12 +132,10 @@ function ApplyModal({
 
 export default function MyLeave() {
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees } = useFirebaseEmployees()
+  const { employee: myEmployee } = useMyEmployee()
   const { requests: allLeave } = useFirebaseLeave()
   const [modal,  setModal]  = useState(false)
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'declined'>('all')
-
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
   const myLeave    = allLeave.filter(r => r.employeeId === myEmployee?.id)
 
   const annualUsed = myLeave.filter(r => r.type === 'annual' && r.status === 'approved').reduce((s, r) => s + r.days, 0)

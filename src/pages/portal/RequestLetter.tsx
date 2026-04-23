@@ -8,8 +8,7 @@ import {
   serverTimestamp, orderBy,
 } from 'firebase/firestore'
 import { db } from '../../config/firebase'
-import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 import { createNotification } from '../../components/common/NotificationBell'
 
 interface LetterRequest {
@@ -47,9 +46,7 @@ function fmtDate(ts: { seconds: number } | null) {
 }
 
 export default function RequestLetter() {
-  const currentUser = useAppSelector(s => s.auth.user)
-  const { employees } = useFirebaseEmployees()
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
+  const { employee: myEmployee } = useMyEmployee()
 
   const [requests, setRequests] = useState<LetterRequest[]>([])
   const [selected, setSelected] = useState<string | null>(null)
@@ -90,7 +87,7 @@ export default function RequestLetter() {
         submittedAt:  serverTimestamp(),
       })
       await createNotification(
-        currentUser!.email,
+        myEmployee?.email ?? '',
         'Letter Request Submitted',
         `Your ${letterType.label} request is being processed. Allow 3–5 business days.`,
         'letter',

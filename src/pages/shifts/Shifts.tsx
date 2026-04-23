@@ -1,9 +1,31 @@
-import { useState, useMemo } from 'react'
-import { Plus, Sun, Sunset, Moon, RotateCcw, Users, Clock, Edit2, Trash2, X } from 'lucide-react'
-import type { Shift, ShiftAssignment } from '../../types'
+import { useState, useMemo, useEffect } from 'react'
+import { Plus, Sun, Sunset, Moon, RotateCcw, Users, Clock, Edit2, Trash2, X, Loader2 } from 'lucide-react'
+import {
+  collection, addDoc, deleteDoc, doc, onSnapshot,
+  query, orderBy, serverTimestamp,
+} from 'firebase/firestore'
+import { db } from '../../config/firebase'
+import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import type { Shift } from '../../types'
 import { cn } from '../../utils/cn'
 
-// ── Static default shifts for CCE dispatch operations ─────────────────
+// ── Types ─────────────────────────────────────────────────────────────
+interface FSAssignment {
+  id: string
+  employeeId:   string  // human-readable ID e.g. 'CCE001'
+  employeeName: string
+  jobTitle:     string
+  shiftId:      string
+  shiftName:    string
+  startTime:    string
+  endTime:      string
+  days:         string[]
+  project:      string
+  startDate:    string
+  isActive:     boolean
+}
+
+// ── Static shift definitions ──────────────────────────────────────────
 const DEFAULT_SHIFTS: Shift[] = [
   { id: 's1', name: 'Morning',   startTime: '08:00', endTime: '16:00', project: 'CCE', days: ['Mon','Tue','Wed','Thu','Fri','Sat'], color: '#F59E0B' },
   { id: 's2', name: 'Afternoon', startTime: '14:00', endTime: '22:00', project: 'CCE', days: ['Mon','Tue','Wed','Thu','Fri','Sat'], color: '#2E86C1' },
@@ -14,7 +36,7 @@ const DEFAULT_SHIFTS: Shift[] = [
   { id: 's7', name: 'Morning',   startTime: '08:00', endTime: '16:00', project: '1AB', days: ['Mon','Tue','Wed','Thu','Fri','Sat'], color: '#14B8A6' },
 ]
 
-const PROJECTS = ['All', 'CCE', 'VGT', 'ADT', '1AB', 'A1 Ace Taxis']
+const PROJECTS   = ['All', 'CCE', 'VGT', 'ADT', '1AB', 'A1 Ace Taxis']
 const DAYS_ORDER = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
 
 const SHIFT_ICON: Record<string, React.ElementType> = {
@@ -23,17 +45,6 @@ const SHIFT_ICON: Record<string, React.ElementType> = {
   Night:     Moon,
   Rotating:  RotateCcw,
 }
-
-// Sample assignments – in production these come from Firestore
-const SAMPLE_ASSIGNMENTS: ShiftAssignment[] = [
-  { id: 'a1', employeeId: 'CCE-1004', employeeName: 'Afaq Kiyani',          jobTitle: 'Senior Dispatcher', shiftId: 's1', shiftName: 'Morning',   project: 'ADT', startDate: '2024-01-01', isActive: true },
-  { id: 'a2', employeeId: 'CCE-1008', employeeName: 'Syed Hasnain Ali Kazmi', jobTitle: 'Dispatcher',       shiftId: 's5', shiftName: 'Night',     project: 'VGT', startDate: '2024-01-01', isActive: true },
-  { id: 'a3', employeeId: 'CCE-1010', employeeName: 'Muhammad Talha Imran Baig', jobTitle: 'Dispatcher',   shiftId: 's5', shiftName: 'Night',     project: 'VGT', startDate: '2024-01-01', isActive: true },
-  { id: 'a4', employeeId: 'CCE-1012', employeeName: 'Hammad Javed',          jobTitle: 'Dispatcher',       shiftId: 's4', shiftName: 'Morning',   project: 'VGT', startDate: '2024-01-01', isActive: true },
-  { id: 'a5', employeeId: 'CCE-1023', employeeName: 'Zaeem Shahid',          jobTitle: 'Dispatcher',       shiftId: 's5', shiftName: 'Night',     project: 'VGT', startDate: '2024-01-01', isActive: true },
-  { id: 'a6', employeeId: 'CCE-1001', employeeName: 'Basit Mustafa Jilani',  jobTitle: 'Operations Manager', shiftId: 's1', shiftName: 'Morning', project: 'CCE', startDate: '2018-11-16', isActive: true },
-  { id: 'a7', employeeId: 'CCE-1019', employeeName: 'Yousaf Hassan',         jobTitle: 'Dispatcher',       shiftId: 's1', shiftName: 'Morning',   project: 'A1 Ace Taxis', startDate: '2022-09-07', isActive: true },
-]
 
 function shiftDuration(start: string, end: string) {
   const [sh, sm] = start.split(':').map(Number)
@@ -44,16 +55,32 @@ function shiftDuration(start: string, end: string) {
 }
 
 export default function Shifts() {
-  const [shifts, setShifts]           = useState<Shift[]>(DEFAULT_SHIFTS)
-  const [assignments, setAssignments] = useState<ShiftAssignment[]>(SAMPLE_ASSIGNMENTS)
+  const [shifts, setShifts]       = useState<Shift[]>(DEFAULT_SHIFTS)
+  const [assignments, setAssignments] = useState<FSAssignment[]>([])
+  const [assignLoading, setAssignLoading] = useState(true)
+  const [saving, setSaving]       = useState(false)
+
   const [projectFilter, setProjectFilter] = useState('All')
-  const [view, setView]               = useState<'shifts' | 'roster'>('shifts')
-  const [showForm, setShowForm]       = useState(false)
+  const [view, setView]           = useState<'shifts' | 'roster'>('shifts')
+  const [showForm, setShowForm]   = useState(false)
   const [showAssignForm, setShowAssignForm] = useState(false)
   const [editingShift, setEditingShift] = useState<Shift | null>(null)
 
   const [form, setForm] = useState({ name: '', startTime: '', endTime: '', project: 'CCE', days: [] as string[] })
-  const [assignForm, setAssignForm] = useState({ employeeId: '', employeeName: '', jobTitle: '', shiftId: '', startDate: '' })
+  const [assignForm, setAssignForm] = useState({ employeeDocId: '', shiftId: '', startDate: '' })
+
+  const { employees } = useFirebaseEmployees()
+  const activeEmployees = employees.filter(e => e.status === 'active')
+
+  // ── Load assignments from Firestore ───────────────────────────────
+  useEffect(() => {
+    const q = query(collection(db, 'shift_assignments'), orderBy('createdAt', 'desc'))
+    const unsub = onSnapshot(q, snap => {
+      setAssignments(snap.docs.map(d => ({ id: d.id, ...d.data() } as FSAssignment)))
+      setAssignLoading(false)
+    }, () => setAssignLoading(false))
+    return unsub
+  }, [])
 
   const filteredShifts = useMemo(() =>
     projectFilter === 'All' ? shifts : shifts.filter(s => s.project === projectFilter),
@@ -87,25 +114,37 @@ export default function Shifts() {
 
   function deleteShift(id: string) {
     setShifts(s => s.filter(x => x.id !== id))
-    setAssignments(a => a.filter(x => x.shiftId !== id))
   }
 
-  function saveAssignment() {
-    if (!assignForm.employeeId || !assignForm.shiftId) return
+  async function saveAssignment() {
+    const emp   = activeEmployees.find(e => e.id === assignForm.employeeDocId)
     const shift = shifts.find(s => s.id === assignForm.shiftId)
-    setAssignments(a => [...a, {
-      id: `a${Date.now()}`,
-      ...assignForm,
-      shiftName: shift?.name ?? '',
-      project: shift?.project ?? '',
-      isActive: true,
-    }])
-    setAssignForm({ employeeId: '', employeeName: '', jobTitle: '', shiftId: '', startDate: '' })
-    setShowAssignForm(false)
+    if (!emp || !shift || !assignForm.startDate) return
+    setSaving(true)
+    try {
+      await addDoc(collection(db, 'shift_assignments'), {
+        employeeId:   emp.employeeId ?? emp.id,
+        employeeName: emp.name,
+        jobTitle:     emp.jobTitle ?? '',
+        shiftId:      shift.id,
+        shiftName:    shift.name,
+        startTime:    shift.startTime,
+        endTime:      shift.endTime,
+        days:         shift.days,
+        project:      shift.project,
+        startDate:    assignForm.startDate,
+        isActive:     true,
+        createdAt:    serverTimestamp(),
+      })
+      setAssignForm({ employeeDocId: '', shiftId: '', startDate: '' })
+      setShowAssignForm(false)
+    } finally {
+      setSaving(false)
+    }
   }
 
-  function removeAssignment(id: string) {
-    setAssignments(a => a.filter(x => x.id !== id))
+  async function removeAssignment(id: string) {
+    await deleteDoc(doc(db, 'shift_assignments', id))
   }
 
   function startEdit(shift: Shift) {
@@ -139,10 +178,10 @@ export default function Shifts() {
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total Shifts',      value: shifts.length },
-          { label: 'Active Assignments',value: assignments.filter(a => a.isActive).length },
-          { label: 'Projects Covered',  value: [...new Set(shifts.map(s => s.project))].length },
-          { label: 'Night Shift Staff', value: assignments.filter(a => a.shiftName === 'Night' && a.isActive).length },
+          { label: 'Total Shifts',       value: shifts.length },
+          { label: 'Active Assignments', value: assignments.filter(a => a.isActive).length },
+          { label: 'Projects Covered',   value: [...new Set(shifts.map(s => s.project))].length },
+          { label: 'Night Shift Staff',  value: assignments.filter(a => a.shiftName === 'Night' && a.isActive).length },
         ].map(({ label, value }) => (
           <div key={label} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm text-center">
             <p className="text-2xl font-bold text-gray-900">{value}</p>
@@ -162,7 +201,7 @@ export default function Shifts() {
             </button>
           ))}
         </div>
-        <div className="flex gap-1 ml-auto">
+        <div className="flex gap-1 ml-auto flex-wrap">
           {PROJECTS.map(p => (
             <button key={p} onClick={() => setProjectFilter(p)}
               className={cn('px-3 py-1.5 text-xs rounded-lg font-medium border transition-all',
@@ -231,18 +270,39 @@ export default function Shifts() {
             <h3 className="font-semibold text-gray-900">Assign Employee to Shift</h3>
             <button onClick={() => setShowAssignForm(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <input className={inputCls} placeholder="Employee ID (e.g. CCE-1004)" value={assignForm.employeeId} onChange={e => setAssignForm(f => ({...f, employeeId: e.target.value}))} />
-            <input className={inputCls} placeholder="Employee Name" value={assignForm.employeeName} onChange={e => setAssignForm(f => ({...f, employeeName: e.target.value}))} />
-            <input className={inputCls} placeholder="Job Title" value={assignForm.jobTitle} onChange={e => setAssignForm(f => ({...f, jobTitle: e.target.value}))} />
-            <select className={inputCls} value={assignForm.shiftId} onChange={e => setAssignForm(f => ({...f, shiftId: e.target.value}))}>
-              <option value="">Select Shift...</option>
-              {shifts.map(s => <option key={s.id} value={s.id}>{s.project} – {s.name} ({s.startTime}–{s.endTime})</option>)}
-            </select>
-            <input type="date" className={inputCls} value={assignForm.startDate} onChange={e => setAssignForm(f => ({...f, startDate: e.target.value}))} />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Employee</label>
+              <select className={inputCls} value={assignForm.employeeDocId}
+                onChange={e => setAssignForm(f => ({ ...f, employeeDocId: e.target.value }))}>
+                <option value="">Select employee…</option>
+                {activeEmployees.map(e => (
+                  <option key={e.id} value={e.id}>{e.name} ({e.employeeId ?? e.id})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Shift</label>
+              <select className={inputCls} value={assignForm.shiftId}
+                onChange={e => setAssignForm(f => ({ ...f, shiftId: e.target.value }))}>
+                <option value="">Select shift…</option>
+                {shifts.map(s => (
+                  <option key={s.id} value={s.id}>{s.project} – {s.name} ({s.startTime}–{s.endTime})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Start Date</label>
+              <input type="date" className={inputCls} value={assignForm.startDate}
+                onChange={e => setAssignForm(f => ({ ...f, startDate: e.target.value }))} />
+            </div>
           </div>
           <div className="flex gap-2 mt-4">
-            <button onClick={saveAssignment} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">Assign</button>
+            <button onClick={saveAssignment} disabled={saving || !assignForm.employeeDocId || !assignForm.shiftId || !assignForm.startDate}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50">
+              {saving && <Loader2 size={14} className="animate-spin" />}
+              Assign
+            </button>
             <button onClick={() => setShowAssignForm(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">Cancel</button>
           </div>
         </div>
@@ -300,46 +360,53 @@ export default function Shifts() {
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr>
-                {['Employee','Job Title','Project','Shift','Hours','Since',''].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {filteredAssignments.map(a => {
-                const shift = shifts.find(s => s.id === a.shiftId)
-                const Icon  = SHIFT_ICON[a.shiftName] ?? Clock
-                return (
-                  <tr key={a.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-900">{a.employeeName}</td>
-                    <td className="px-4 py-3 text-gray-500">{a.jobTitle}</td>
-                    <td className="px-4 py-3">
-                      <span className="px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary font-medium">{a.project}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <Icon size={14} style={{ color: shift?.color }} />
-                        <span>{a.shiftName}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">
-                      {shift ? `${shift.startTime} – ${shift.endTime}` : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">{a.startDate}</td>
-                    <td className="px-4 py-3">
-                      <button onClick={() => removeAssignment(a.id)} className="text-red-400 hover:text-red-600 transition-colors"><X size={14} /></button>
-                    </td>
-                  </tr>
-                )
-              })}
-              {filteredAssignments.length === 0 && (
-                <tr><td colSpan={7} className="text-center py-12 text-gray-400">No staff assigned for this filter.</td></tr>
-              )}
-            </tbody>
-          </table>
+          {assignLoading ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-gray-400 text-sm">
+              <Loader2 size={16} className="animate-spin" /> Loading assignments…
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  {['Employee','Job Title','Project','Shift','Hours','Since',''].map(h => (
+                    <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filteredAssignments.map(a => {
+                  const shift = shifts.find(s => s.id === a.shiftId)
+                  const Icon  = SHIFT_ICON[a.shiftName] ?? Clock
+                  return (
+                    <tr key={a.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-gray-900">{a.employeeName}</p>
+                        <p className="text-[11px] text-gray-400">{a.employeeId}</p>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500">{a.jobTitle}</td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary font-medium">{a.project}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Icon size={14} style={{ color: shift?.color ?? '#6B7280' }} />
+                          <span>{a.shiftName}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500">{a.startTime} – {a.endTime}</td>
+                      <td className="px-4 py-3 text-gray-500">{a.startDate}</td>
+                      <td className="px-4 py-3">
+                        <button onClick={() => removeAssignment(a.id)} className="text-red-400 hover:text-red-600 transition-colors"><X size={14} /></button>
+                      </td>
+                    </tr>
+                  )
+                })}
+                {filteredAssignments.length === 0 && (
+                  <tr><td colSpan={7} className="text-center py-12 text-gray-400">No staff assigned. Use "Assign Employee" to add shifts.</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </div>

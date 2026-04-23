@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 import { storage } from '../../config/firebase'
 
 const inp = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-white text-gray-800'
@@ -43,8 +43,8 @@ function resizeImage(file: File, maxPx = 200): Promise<string> {
 
 export default function MyProfile() {
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees, loading, updateEmployee } = useFirebaseEmployees()
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
+  const { employee: myEmployee, loading, updateEmployee: updateMyEmployee } = useMyEmployee()
+  const updateEmployee = (_id: string, data: Parameters<typeof updateMyEmployee>[0]) => updateMyEmployee(data)
 
   const photoInputRef = useRef<HTMLInputElement>(null)
   const certInputRef  = useRef<HTMLInputElement>(null)

@@ -12,7 +12,7 @@ import {
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 import { useFirebaseTimesheets, fmt12, toYMD, fmtHours, weekMonday } from '../../hooks/useFirebaseTimesheets'
 import { useFirebaseLeave } from '../../hooks/useFirebaseLeave'
 import { QRCodeSVG } from 'qrcode.react'
@@ -255,13 +255,11 @@ function LeaveModal({
 export default function EmployeeDashboard() {
   const navigate    = useNavigate()
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees } = useFirebaseEmployees()
+  const { employee: myEmployee } = useMyEmployee()
   const { requests: allLeave } = useFirebaseLeave()
   const [liveTime,   setLiveTime]   = useState(new Date())
   const [clockingIn, setClockingIn] = useState(false)
   const [leaveModal, setLeaveModal] = useState(false)
-
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
   const { entries, currentlyClockedIn, clockIn, clockOut } =
     useFirebaseTimesheets(myEmployee?.id ?? '')
 
