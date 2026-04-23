@@ -16,8 +16,13 @@ import { useAppSelector } from '../../store'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
 import { useFirebaseTimesheets, fmt12, toYMD } from '../../hooks/useFirebaseTimesheets'
 import { useFirebaseLeave } from '../../hooks/useFirebaseLeave'
-import { collection, addDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore'
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../config/firebase'
+import {
+  fetchRotaShifts, fetchRotaAttendance,
+  type RotaShift, type RotaAttendance,
+} from '../../services/rotacloud'
+import { unixToHHMM } from '../../hooks/useRotaAttendance'
 
 // ── Team Lead mock data ───────────────────────────────────────────────
 const TEAM_MEMBERS = [
@@ -122,23 +127,62 @@ function AdminDashboard() {
   const todayStr = toYMD(today)
   const firstName = (currentUser?.name ?? 'there').split(' ')[0]
 
-  type ShiftEmp = { name: string; jobTitle: string; dept: string; since: string }
+  type ShiftEmp = { name: string; jobTitle: string; dept: string; since: string; isClockedIn: boolean }
   const [shiftEmps,    setShiftEmps]    = useState<ShiftEmp[]>([])
   const [hrMarkedToday, setHrMarkedToday] = useState<{ status: string }[]>([])
 
   useEffect(() => {
     if (!employees.length) return
-    getDocs(query(collection(db, 'time_entries'), where('date', '==', todayStr), where('clockedIn', '==', true)))
-      .then(snap => {
-        const items = snap.docs.map(d => {
-          const data = d.data()
-          const emp  = employees.find(e => e.id === data.employeeId)
-          return emp ? { name: emp.name, jobTitle: emp.jobTitle, dept: emp.department ?? '', since: data.startTime ?? '' } : null
-        }).filter((x): x is ShiftEmp => x !== null)
-        setShiftEmps(items)
-      })
-    getDocs(query(collection(db, 'attendance_records'), where('date', '==', todayStr)))
-      .then(s => setHrMarkedToday(s.docs.map(d => d.data() as { status: string })))
+    const now        = Math.floor(Date.now() / 1000)
+    const todayStart = Math.floor(new Date(todayStr + 'T00:00:00').getTime() / 1000)
+    const todayEnd   = Math.floor(new Date(todayStr + 'T23:59:59').getTime() / 1000)
+
+    Promise.all([
+      fetchRotaShifts(todayStart, todayEnd),
+      fetchRotaAttendance(todayStart, todayEnd),
+    ]).then(([shifts, attendance]) => {
+      const rotaShifts     = shifts     as RotaShift[]
+      const rotaAttendance = attendance as RotaAttendance[]
+
+      // Active shifts right now
+      const activeShifts = rotaShifts.filter(s =>
+        !s.deleted && s.published && !s.open &&
+        s.start_time <= now && s.end_time >= now
+      )
+
+      // Who is actually clocked in
+      const clockedInMap = new Map<number, RotaAttendance>()
+      rotaAttendance
+        .filter(a => !a.deleted && a.in_time_clocked && !a.out_time_clocked)
+        .forEach(a => clockedInMap.set(a.user, a))
+
+      const items: ShiftEmp[] = activeShifts
+        .map(s => {
+          const emp     = employees.find(e => e.rotacloudId === s.user)
+          if (!emp) return null
+          const attRec  = clockedInMap.get(s.user)
+          const hhmm    = attRec?.in_time_clocked ? unixToHHMM(attRec.in_time_clocked) : undefined
+          return {
+            name:        emp.name,
+            jobTitle:    emp.jobTitle,
+            dept:        emp.department ?? '',
+            since:       hhmm ? fmt12(hhmm) : '',
+            isClockedIn: !!attRec,
+          }
+        })
+        .filter((x): x is ShiftEmp => x !== null)
+
+      setShiftEmps(items)
+
+      // Late / absent derived from RotaCloud attendance
+      const lateRecs   = rotaAttendance.filter(a => !a.deleted && a.minutes_late > 30 && a.hours > 0)
+      const nowMinus30 = now - 30 * 60
+      const absentRecs = activeShifts.filter(s => s.start_time < nowMinus30 && !clockedInMap.has(s.user))
+      setHrMarkedToday([
+        ...lateRecs.map(  () => ({ status: 'late'   })),
+        ...absentRecs.map(() => ({ status: 'absent' })),
+      ])
+    }).catch(() => {})
   }, [todayStr, employees.length])
 
   // ── Derived ──────────────────────────────────────────────────────────
@@ -279,7 +323,7 @@ function AdminDashboard() {
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Live
               </span>
               <span className="text-white/60 text-[13px]">
-                {shiftEmps.length} clocked in · {hrLate} late · {hrAbsent} absent · {onLeaveToday} on leave
+                {shiftEmps.length} on shift · {shiftEmps.filter(e => e.isClockedIn).length} clocked in · {hrLate} late · {hrAbsent} absent · {onLeaveToday} on leave
               </span>
             </div>
           </div>
@@ -604,30 +648,36 @@ function AdminDashboard() {
             </div>
             <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-full text-[11px] font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              {shiftEmps.length} active
+              {shiftEmps.length} on shift · {shiftEmps.filter(e => e.isClockedIn).length} in
             </div>
           </div>
 
           {shiftEmps.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center gap-2 py-6">
               <Clock size={28} className="text-gray-200" />
-              <p className="text-sm text-gray-400">No active sessions</p>
-              <p className="text-[11px] text-gray-300">Staff clock-ins will appear here</p>
+              <p className="text-sm text-gray-400">No active shifts right now</p>
+              <p className="text-[11px] text-gray-300">Scheduled shifts will appear here</p>
             </div>
           ) : (
             <div className="flex flex-col gap-1.5 overflow-y-auto max-h-64">
               {shiftEmps.map((e, i) => (
                 <div key={i} className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-gray-50 transition-colors">
-                  <InitialAvatar name={e.name} hue={hueFor(e.name)} size={34} />
+                  <div className="relative shrink-0">
+                    <InitialAvatar name={e.name} hue={hueFor(e.name)} size={34} />
+                    {e.isClockedIn && (
+                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-white animate-pulse" />
+                    )}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-semibold text-gray-900 truncate">{e.name}</p>
                     <p className="text-[11px] text-gray-400 truncate">{e.jobTitle}</p>
                   </div>
-                  {e.since && (
-                    <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full shrink-0">
-                      {e.since}
-                    </span>
-                  )}
+                  <div className="flex flex-col items-end gap-0.5 shrink-0">
+                    {e.since
+                      ? <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full">In {e.since}</span>
+                      : <span className="text-[10px] text-gray-400 bg-gray-50 px-2 py-0.5 rounded-full">Not clocked in</span>
+                    }
+                  </div>
                 </div>
               ))}
             </div>
