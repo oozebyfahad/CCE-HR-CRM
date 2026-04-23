@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Clock, ChevronLeft, ChevronRight, Plus, Edit2,
-  CheckCircle2, History, AlarmClock, UserCheck, RefreshCw, AlertCircle,
+  CheckCircle2, History, AlarmClock, UserCheck, RefreshCw, AlertCircle, Download,
 } from 'lucide-react'
 import type { FirebaseEmployee } from '../../../hooks/useFirebaseEmployees'
 import {
@@ -12,6 +12,7 @@ import { useAppSelector } from '../../../store'
 import { cn } from '../../../utils/cn'
 import { fetchRotaAttendance, fetchRotaShifts, monthToUnix, type RotaAttendance, type RotaShift } from '../../../services/rotacloud'
 import { unixToHHMM, unixToLocalDate } from '../../../hooks/useRotaAttendance'
+import { exportTimesheetExcel } from '../../../utils/exportTimesheetExcel'
 
 // ── Constants ─────────────────────────────────────────────────────────
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -350,15 +351,31 @@ function StatusBadge({ status, approved }: { status: string; approved?: boolean 
 }
 
 function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
-  const [month,      setMonth]      = useState(currentMonth)
-  const [attendance, setAttendance] = useState<RotaAttendance[]>([])
-  const [shifts,     setShifts]     = useState<RotaShift[]>([])
-  const [loading,    setLoading]    = useState(false)
-  const [error,      setError]      = useState('')
+  const [month,       setMonth]       = useState(currentMonth)
+  const [attendance,  setAttendance]  = useState<RotaAttendance[]>([])
+  const [shifts,      setShifts]      = useState<RotaShift[]>([])
+  const [loading,     setLoading]     = useState(false)
+  const [error,       setError]       = useState('')
+  const [downloading, setDownloading] = useState(false)
 
   const maxMonth = currentMonth()
   const rcId = emp.rotacloudId ? Number(emp.rotacloudId) : null
   const todayStr = new Date().toISOString().slice(0, 10)
+
+  async function handleDownload() {
+    setDownloading(true)
+    try {
+      await exportTimesheetExcel({
+        employeeName: emp.name,
+        department:   emp.department ?? '',
+        month,
+        attendance,
+        shifts,
+      })
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   useEffect(() => {
     if (!rcId) return
@@ -457,6 +474,19 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
             <ChevronRight size={15} />
           </button>
           {loading && <RefreshCw size={13} className="text-gray-400 animate-spin ml-2" />}
+          <button
+            onClick={handleDownload}
+            disabled={downloading || loading || attendance.length === 0}
+            className={cn(
+              'ml-3 flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition',
+              downloading || loading || attendance.length === 0
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-primary text-white hover:bg-primary/90 shadow-sm'
+            )}>
+            {downloading
+              ? <><RefreshCw size={12} className="animate-spin" />Exporting…</>
+              : <><Download size={12} />Download Excel</>}
+          </button>
         </div>
 
         {/* Summary chips */}
