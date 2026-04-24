@@ -54,6 +54,9 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   // Tracks RotaCloud-derived punctuality eligibility: empId → { lateCount, completedShifts }
   const [lateMap, setLateMap] = useState<Record<string, { lateCount: number; completedShifts: number }>>({})
 
+  // Global punctuality bonus rate for auto-fill
+  const [globalPuncRate, setGlobalPuncRate] = useState('')
+
   // RotaCloud hours import
   const [rotaImporting, setRotaImporting] = useState(false)
   const [rotaStatus,    setRotaStatus]    = useState<{ matched: number; total: number } | null>(null)
@@ -275,6 +278,39 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           {/* ── Step 2: Hours per employee ── */}
           {step === 2 && (
             <div className="p-6 space-y-6">
+
+              {/* ── Global punctuality rate auto-fill ── */}
+              <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+                <Star size={14} className="text-blue-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-blue-800">Punctuality Bonus Rate</p>
+                  <p className="text-[10px] text-blue-600 mt-0.5">Set a global PKR amount and auto-fill it for all qualifying employees (late ≤ 3× and ≥ 15 shifts).</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <input
+                    type="number" min={0} step={100} placeholder="e.g. 2000"
+                    value={globalPuncRate}
+                    onChange={e => setGlobalPuncRate(e.target.value)}
+                    className="w-28 border border-blue-300 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white text-blue-800 font-semibold"
+                  />
+                  <button
+                    onClick={() => {
+                      const rate = parseFloat(globalPuncRate)
+                      if (isNaN(rate) || rate < 0) return
+                      const next: Record<string, string> = { ...punctualityMap }
+                      active.forEach(emp => {
+                        const eli = lateMap[emp.id]
+                        const qualifies = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : false
+                        next[emp.id] = qualifies ? String(rate) : '0'
+                      })
+                      setPunctualityMap(next)
+                    }}
+                    disabled={!globalPuncRate}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition disabled:opacity-40">
+                    <Check size={12} />Apply
+                  </button>
+                </div>
+              </div>
 
               {/* Hourly employees */}
               {/* ── Hourly staff ── */}
