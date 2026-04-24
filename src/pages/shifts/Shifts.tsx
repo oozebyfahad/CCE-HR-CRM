@@ -26,7 +26,7 @@ const DEFAULT_EMPLOYEES: RotaEmployee[] = []
 
 const SAMPLE_ASSIGNMENTS: ShiftAssignment[] = []
 
-const PROJECTS    = ['All', 'CCE', 'VGT', 'ADT', '1AB', 'A1 Ace Taxis']
+const PROJECTS    = ['All', 'CCE', 'VGT', 'ADT', '1AB', 'A1 Ace Taxis', 'Inverness']
 const DAYS_ORDER  = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
 
 const SHIFT_ICON: Record<string, React.ElementType> = {
