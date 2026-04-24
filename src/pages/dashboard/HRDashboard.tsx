@@ -210,9 +210,9 @@ function AdminDashboard() {
   const hrLate   = hrMarkedToday.filter(r => r.status === 'late').length
   const hrAbsent = hrMarkedToday.filter(r => r.status === 'absent').length
 
-  // Headcount trend (12 months) for chart
-  const headcountTrend = Array.from({ length: 12 }, (_, i) => {
-    const d        = new Date(today.getFullYear(), today.getMonth() - (11 - i), 1)
+  // Headcount trend (24 months) for chart
+  const headcountTrend = Array.from({ length: 24 }, (_, i) => {
+    const d        = new Date(today.getFullYear(), today.getMonth() - (23 - i), 1)
     const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10)
     const label    = d.toLocaleDateString('en-GB', { month: 'short' })
     return {
@@ -397,7 +397,7 @@ function AdminDashboard() {
 
           {/* 12-month headcount area chart */}
           <div>
-            <p className="text-[11px] text-gray-400 uppercase tracking-widest font-semibold mb-2">12-Month Headcount Trend</p>
+            <p className="text-[11px] text-gray-400 uppercase tracking-widest font-semibold mb-2">24-Month Headcount Trend</p>
             <ResponsiveContainer width="100%" height={140}>
               <AreaChart data={headcountTrend} margin={{ top: 4, right: 4, bottom: 0, left: -28 }}>
                 <defs>
