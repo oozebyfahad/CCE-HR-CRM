@@ -20,35 +20,11 @@ interface RotaEmployee {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────
-const DEFAULT_SHIFTS: Shift[] = [
-  { id: 's1', name: 'Morning',   startTime: '08:00', endTime: '16:00', project: 'CCE',        days: ['Mon','Tue','Wed','Thu','Fri','Sat'],        color: '#F59E0B' },
-  { id: 's2', name: 'Afternoon', startTime: '14:00', endTime: '22:00', project: 'CCE',        days: ['Mon','Tue','Wed','Thu','Fri','Sat'],        color: '#2E86C1' },
-  { id: 's3', name: 'Night',     startTime: '22:00', endTime: '06:00', project: 'CCE',        days: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],  color: '#8B5CF6' },
-  { id: 's4', name: 'Morning',   startTime: '08:00', endTime: '16:00', project: 'VGT',        days: ['Mon','Tue','Wed','Thu','Fri','Sat'],        color: '#10B981' },
-  { id: 's5', name: 'Night',     startTime: '20:00', endTime: '06:00', project: 'VGT',        days: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],  color: '#EC4899' },
-  { id: 's6', name: 'Morning',   startTime: '08:00', endTime: '16:00', project: 'ADT',        days: ['Mon','Tue','Wed','Thu','Fri','Sat'],        color: '#F97316' },
-  { id: 's7', name: 'Morning',   startTime: '08:00', endTime: '16:00', project: '1AB',        days: ['Mon','Tue','Wed','Thu','Fri','Sat'],        color: '#14B8A6' },
-]
+const DEFAULT_SHIFTS: Shift[] = []
 
-const DEFAULT_EMPLOYEES: RotaEmployee[] = [
-  { id: 'CCE-1001', name: 'Basit Mustafa Jilani',        jobTitle: 'Operations Manager',  project: 'CCE'          },
-  { id: 'CCE-1004', name: 'Afaq Kiyani',                  jobTitle: 'Senior Dispatcher',   project: 'ADT'          },
-  { id: 'CCE-1008', name: 'Syed Hasnain Ali Kazmi',       jobTitle: 'Dispatcher',          project: 'VGT'          },
-  { id: 'CCE-1010', name: 'Muhammad Talha Imran Baig',    jobTitle: 'Dispatcher',          project: 'VGT'          },
-  { id: 'CCE-1012', name: 'Hammad Javed',                 jobTitle: 'Dispatcher',          project: 'VGT'          },
-  { id: 'CCE-1019', name: 'Yousaf Hassan',                jobTitle: 'Dispatcher',          project: 'A1 Ace Taxis' },
-  { id: 'CCE-1023', name: 'Zaeem Shahid',                 jobTitle: 'Dispatcher',          project: 'VGT'          },
-]
+const DEFAULT_EMPLOYEES: RotaEmployee[] = []
 
-const SAMPLE_ASSIGNMENTS: ShiftAssignment[] = [
-  { id: 'a1', employeeId: 'CCE-1004', employeeName: 'Afaq Kiyani',               jobTitle: 'Senior Dispatcher',  shiftId: 's6', shiftName: 'Morning', project: 'ADT',          startDate: '2024-01-01', isActive: true },
-  { id: 'a2', employeeId: 'CCE-1008', employeeName: 'Syed Hasnain Ali Kazmi',    jobTitle: 'Dispatcher',         shiftId: 's5', shiftName: 'Night',   project: 'VGT',          startDate: '2024-01-01', isActive: true },
-  { id: 'a3', employeeId: 'CCE-1010', employeeName: 'Muhammad Talha Imran Baig', jobTitle: 'Dispatcher',         shiftId: 's5', shiftName: 'Night',   project: 'VGT',          startDate: '2024-01-01', isActive: true },
-  { id: 'a4', employeeId: 'CCE-1012', employeeName: 'Hammad Javed',              jobTitle: 'Dispatcher',         shiftId: 's4', shiftName: 'Morning', project: 'VGT',          startDate: '2024-01-01', isActive: true },
-  { id: 'a5', employeeId: 'CCE-1023', employeeName: 'Zaeem Shahid',              jobTitle: 'Dispatcher',         shiftId: 's5', shiftName: 'Night',   project: 'VGT',          startDate: '2024-01-01', isActive: true },
-  { id: 'a6', employeeId: 'CCE-1001', employeeName: 'Basit Mustafa Jilani',      jobTitle: 'Operations Manager', shiftId: 's1', shiftName: 'Morning', project: 'CCE',          startDate: '2018-11-16', isActive: true },
-  { id: 'a7', employeeId: 'CCE-1019', employeeName: 'Yousaf Hassan',             jobTitle: 'Dispatcher',         shiftId: 's1', shiftName: 'Morning', project: 'A1 Ace Taxis', startDate: '2022-09-07', isActive: true },
-]
+const SAMPLE_ASSIGNMENTS: ShiftAssignment[] = []
 
 const PROJECTS    = ['All', 'CCE', 'VGT', 'ADT', '1AB', 'A1 Ace Taxis']
 const DAYS_ORDER  = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
