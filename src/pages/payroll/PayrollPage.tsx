@@ -114,11 +114,11 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         } catch { /* no pre-approval — fall through */ }
 
         const isHourly  = emp.payType === 'hourly'
-        const threshold = emp.monthlyHours ?? 160
+        const threshold = emp.monthlyHours   // undefined = no cap for hourly; default 160 for fixed
 
         if (approvedHours !== null) {
-          // Cap fixed-monthly employees at their threshold (no overtime paid)
-          const capped = isHourly ? approvedHours : Math.min(approvedHours, threshold)
+          let capped = approvedHours
+          if (threshold != null) capped = Math.min(capped, threshold)
           newHours[emp.id] = String(Math.round(capped * 100) / 100)
         } else {
           // Calculate from raw RotaCloud data
@@ -145,8 +145,8 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
             }
             totalHrs += hrs
           }
-          // Fixed-monthly: cap total at threshold — no overtime paid
-          if (!isHourly) totalHrs = Math.min(totalHrs, threshold)
+          // Cap total at monthly threshold if set (applies to both hourly and fixed)
+          if (threshold != null) totalHrs = Math.min(totalHrs, threshold)
           newHours[emp.id] = String(Math.round(totalHrs * 100) / 100)
           lateCount       = late
           completedShifts = completed

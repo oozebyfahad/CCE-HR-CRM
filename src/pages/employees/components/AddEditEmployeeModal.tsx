@@ -318,12 +318,20 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                 </Field>
 
                 {form.payType === 'hourly' ? (
-                  <Field label="Hourly Rate (PKR)">
-                    <input className={inp} type="number" min={0}
-                      value={form.hourlyRate ?? ''}
-                      onChange={e => set('hourlyRate', e.target.value ? Number(e.target.value) : undefined)}
-                      placeholder="e.g. 500" />
-                  </Field>
+                  <>
+                    <Field label="Hourly Rate (PKR)">
+                      <input className={inp} type="number" min={0}
+                        value={form.hourlyRate ?? ''}
+                        onChange={e => set('hourlyRate', e.target.value ? Number(e.target.value) : undefined)}
+                        placeholder="e.g. 500" />
+                    </Field>
+                    <Field label="Monthly Hours Cap">
+                      <input className={inp} type="number" min={1}
+                        value={form.monthlyHours ?? ''}
+                        onChange={e => set('monthlyHours', e.target.value ? Number(e.target.value) : undefined)}
+                        placeholder="e.g. 208 — leave blank for no cap" />
+                    </Field>
+                  </>
                 ) : (
                   <>
                     <Field label="Monthly Salary (PKR)">

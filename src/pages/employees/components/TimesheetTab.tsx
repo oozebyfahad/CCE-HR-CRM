@@ -685,6 +685,10 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
         }
         approvedHours += hrs
       }
+      // Apply monthly threshold cap if set
+      const threshold = emp.monthlyHours
+      if (threshold != null) approvedHours = Math.min(approvedHours, threshold)
+
       await setDoc(doc(db, 'shift_approvals', `${emp.id}_${month}`), {
         employeeId:     emp.id,
         month,
@@ -694,9 +698,10 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
         approvedAt:     serverTimestamp(),
         approvedBy:     currentUser?.name ?? currentUser?.email ?? 'Admin',
       })
+      const capNote = threshold != null ? ` (capped at ${threshold}h)` : isHourly ? ' (capped to scheduled hours)' : ''
       setApproveStatus({
         ok:  true,
-        msg: `${completedShifts} shifts approved · ${Math.round(approvedHours * 10) / 10}h${isHourly ? ' (capped to scheduled hours)' : ''} · sent to payroll`,
+        msg: `${completedShifts} shifts approved · ${Math.round(approvedHours * 10) / 10}h${capNote} · sent to payroll`,
       })
     } catch (err) {
       setApproveStatus({ ok: false, msg: err instanceof Error ? err.message : 'Failed to save approval' })
