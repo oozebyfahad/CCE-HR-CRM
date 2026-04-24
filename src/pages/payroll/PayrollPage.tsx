@@ -113,11 +113,15 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           }
         } catch { /* no pre-approval — fall through */ }
 
+        const isHourly  = emp.payType === 'hourly'
+        const threshold = emp.monthlyHours ?? 160
+
         if (approvedHours !== null) {
-          newHours[emp.id] = String(approvedHours)
+          // Cap fixed-monthly employees at their threshold (no overtime paid)
+          const capped = isHourly ? approvedHours : Math.min(approvedHours, threshold)
+          newHours[emp.id] = String(Math.round(capped * 100) / 100)
         } else {
-          // Calculate from raw RotaCloud data, capping hourly employees to scheduled shift time
-          const isHourly = emp.payType === 'hourly'
+          // Calculate from raw RotaCloud data
           const shiftByDate = new Map<string, RotaShift>()
           for (const s of shifts) {
             const d = unixToLocalDate(s.start_time)
@@ -131,6 +135,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
             if (att.minutes_late > 0) late++
             let hrs = att.hours
             if (isHourly) {
+              // Hourly: cap each shift to scheduled duration (no early/late padding)
               const d    = unixToLocalDate((att.in_time_clocked ?? att.in_time) as number)
               const shift = shiftByDate.get(d)
               if (shift) {
@@ -140,6 +145,8 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
             }
             totalHrs += hrs
           }
+          // Fixed-monthly: cap total at threshold — no overtime paid
+          if (!isHourly) totalHrs = Math.min(totalHrs, threshold)
           newHours[emp.id] = String(Math.round(totalHrs * 100) / 100)
           lateCount       = late
           completedShifts = completed
