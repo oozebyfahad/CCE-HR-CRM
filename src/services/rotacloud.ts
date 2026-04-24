@@ -3,6 +3,21 @@
 
 const PROXY = '/api/rotacloud'
 
+async function rotaWrite<T>(
+  method: 'POST' | 'PATCH' | 'DELETE',
+  path: string,
+  data?: Record<string, unknown>,
+): Promise<T> {
+  const res = await fetch(PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, method, data }),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error ?? `RotaCloud error ${res.status}`)
+  return json.data as T
+}
+
 async function rotaCall<T>(
   path: string,
   params?: Record<string, string | number>,
@@ -79,6 +94,9 @@ export interface RotaLocation {
   name: string
   users: number[]
   managers: number[]
+  latitude?: number | null
+  longitude?: number | null
+  radius?: number | null   // geofence radius in metres
 }
 
 export interface RotaRole {
@@ -104,6 +122,31 @@ export const fetchRotaLocations = () =>
 
 export const fetchRotaRoles = () =>
   rotaCall<RotaRole[]>('roles')
+
+export const fetchRotaUser = (userId: number) =>
+  rotaCall<RotaUser>(`users/${userId}`)
+
+export const rotaClockIn = (
+  userId: number,
+  locationId: number,
+  roleId: number,
+  clockInUnix: number,
+  scheduledStartUnix?: number,
+) =>
+  rotaWrite<RotaAttendance>('POST', 'attendance', {
+    user:            userId,
+    location:        locationId,
+    role:            roleId,
+    in_time:         scheduledStartUnix ?? clockInUnix,
+    in_time_clocked: clockInUnix,
+    in_method:       'terminal',
+  })
+
+export const rotaClockOut = (attendanceId: number, clockOutUnix: number) =>
+  rotaWrite<RotaAttendance>('PATCH', `attendance/${attendanceId}`, {
+    out_time_clocked: clockOutUnix,
+    out_method:       'terminal',
+  })
 
 // ── Helpers ───────────────────────────────────────────────────────────
 

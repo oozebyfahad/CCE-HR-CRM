@@ -14,7 +14,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'ROTACLOUD_API_KEY is not set in Vercel environment variables.' })
   }
 
-  const { path, params = {}, paginate = false } = req.body
+  const { path, params = {}, paginate = false, method = 'GET', data = null } = req.body
 
   if (!path || typeof path !== 'string') {
     return res.status(400).json({ error: 'Missing "path" field' })
@@ -26,6 +26,24 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Non-GET requests (POST, PATCH, DELETE) — single call, no pagination
+    if (method !== 'GET') {
+      const url = new URL(`${BASE}/${path}`)
+      Object.entries(params).forEach(([k, v]) => {
+        if (v != null) url.searchParams.set(k, String(v))
+      })
+      const apiRes = await fetch(url.toString(), {
+        method,
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: data != null ? JSON.stringify(data) : undefined,
+      })
+      const text = await apiRes.text()
+      let resData
+      try { resData = JSON.parse(text) } catch { resData = text }
+      if (!apiRes.ok) return res.status(apiRes.status).json({ error: text })
+      return res.status(apiRes.status).json({ data: resData })
+    }
+
     if (!paginate) {
       const url = new URL(`${BASE}/${path}`)
       Object.entries(params).forEach(([k, v]) => {

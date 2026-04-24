@@ -7,8 +7,14 @@ import {
 import {
   Clock, CalendarDays, CreditCard, User,
   X, CheckCircle2, Megaphone, AlertTriangle, Bell, Info, QrCode,
-  DollarSign, ScrollText,
+  DollarSign, ScrollText, MapPin, Navigation, RefreshCw,
 } from 'lucide-react'
+import {
+  fetchRotaAttendance, fetchRotaShifts, fetchRotaLocations, fetchRotaUser,
+  rotaClockIn, rotaClockOut,
+  type RotaAttendance, type RotaShift, type RotaLocation, type RotaUser,
+} from '../../services/rotacloud'
+import { unixToHHMM } from '../../hooks/useRotaAttendance'
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import { useAppSelector } from '../../store'
@@ -251,6 +257,15 @@ function LeaveModal({
   )
 }
 
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R    = 6371000
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a    = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
 // ── Main employee portal dashboard ────────────────────────────────────
 export default function EmployeeDashboard() {
   const navigate    = useNavigate()
@@ -258,12 +273,22 @@ export default function EmployeeDashboard() {
   const { employees } = useFirebaseEmployees()
   const { requests: allLeave } = useFirebaseLeave()
   const [liveTime,   setLiveTime]   = useState(new Date())
-  const [clockingIn, setClockingIn] = useState(false)
   const [leaveModal, setLeaveModal] = useState(false)
 
   const myEmployee = employees.find(e => e.email === currentUser?.email)
-  const { entries, currentlyClockedIn, clockIn, clockOut } =
-    useFirebaseTimesheets(myEmployee?.id ?? '')
+  const { entries } = useFirebaseTimesheets(myEmployee?.id ?? '')
+  const rcId = myEmployee?.rotacloudId ? Number(myEmployee.rotacloudId) : null
+
+  // RotaCloud clock state
+  const [todayAtt,    setTodayAtt]    = useState<RotaAttendance | null>(null)
+  const [todayShift,  setTodayShift]  = useState<RotaShift | null>(null)
+  const [rcUser,      setRcUser]      = useState<RotaUser | null>(null)
+  const [rcLocations, setRcLocations] = useState<RotaLocation[]>([])
+  const [rcClocking,  setRcClocking]  = useState(false)
+  const [rcError,     setRcError]     = useState('')
+  const [rcFetching,  setRcFetching]  = useState(false)
+  const [geoStatus,   setGeoStatus]   = useState<'idle'|'checking'|'ok'|'far'|'denied'>('idle')
+  const [geoDistance, setGeoDistance] = useState<number | null>(null)
 
   const [notices, setNotices] = useState<Notice[]>([])
   const [showQr,  setShowQr]  = useState(false)
@@ -282,26 +307,101 @@ export default function EmployeeDashboard() {
     })
   }, [])
 
-  // Today's hours
-  const todayYMD    = toYMD(new Date())
-  const todayEntries = entries.filter(e => e.date === todayYMD)
-  const loggedHours  = todayEntries.filter(e => !e.clockedIn).reduce((s, e) => s + e.hours, 0)
+  // RotaCloud today's data
+  useEffect(() => {
+    if (!rcId) return
+    setRcFetching(true)
+    const now   = new Date()
+    const start = Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime() / 1000)
+    const end   = Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).getTime() / 1000)
+    Promise.all([
+      fetchRotaAttendance(start, end),
+      fetchRotaShifts(start, end),
+      fetchRotaLocations(),
+      fetchRotaUser(rcId),
+    ]).then(([atts, shifts, locs, user]) => {
+      setTodayAtt(atts.find(a => !a.deleted && a.user === rcId) ?? null)
+      setTodayShift(shifts.find(s => !s.deleted && s.published && !s.open && s.user === rcId) ?? null)
+      setRcLocations(locs)
+      setRcUser(user)
+      setRcFetching(false)
+    }).catch(() => setRcFetching(false))
+  }, [rcId])
 
-  let liveHours = loggedHours
-  if (currentlyClockedIn?.startTime) {
-    const [sh, sm] = currentlyClockedIn.startTime.split(':').map(Number)
-    let diffM = liveTime.getHours() * 60 + liveTime.getMinutes() - sh * 60 - sm
-    if (diffM < 0) diffM += 24 * 60
-    liveHours += diffM / 60
-  }
+  const todayYMD = toYMD(new Date())
   const TARGET   = 8
-  const ringPct  = Math.min(1, liveHours / TARGET)
-  const hrs      = Math.floor(liveHours)
-  const mins     = Math.floor((liveHours - hrs) * 60)
-  const secs     = currentlyClockedIn ? liveTime.getSeconds() : 0
-  const liveStr  = `${String(hrs).padStart(2,'0')}:${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`
-  const punchIn  = currentlyClockedIn?.startTime ?? todayEntries[todayEntries.length - 1]?.startTime
-  const punchOut = todayEntries.find(e => e.endTime && !e.clockedIn)?.endTime
+
+  // RotaCloud live clock
+  const isLiveClockedIn  = !!todayAtt?.in_time_clocked && !todayAtt?.out_time_clocked
+  const rcClockedInTime  = todayAtt?.in_time_clocked  ?? null
+  const rcClockedOutTime = todayAtt?.out_time_clocked ?? null
+  const rcElapsed = isLiveClockedIn && rcClockedInTime
+    ? (liveTime.getTime() / 1000 - rcClockedInTime) / 3600
+    : (todayAtt?.hours ?? 0)
+  const rcRingPct = Math.min(1, rcElapsed / TARGET)
+  const rcHrs     = Math.floor(rcElapsed)
+  const rcMins    = Math.floor((rcElapsed - rcHrs) * 60)
+  const rcSecs    = isLiveClockedIn ? liveTime.getSeconds() : 0
+  const rcLiveStr = `${String(rcHrs).padStart(2,'0')}:${String(rcMins).padStart(2,'0')}:${String(rcSecs).padStart(2,'0')}`
+
+  // Clock location/role — prefer today's shift, fall back to RotaCloud user defaults
+  const clockLocation   = todayShift
+    ? rcLocations.find(l => l.id === todayShift.location) ?? null
+    : rcLocations.find(l => rcUser?.locations?.includes(l.id)) ?? null
+  const clockLocationId = todayShift?.location ?? rcUser?.locations?.[0] ?? null
+  const clockRoleId     = todayShift?.role     ?? rcUser?.default_role ?? rcUser?.roles?.[0] ?? null
+
+  // Clock handlers
+  const handleRotaClockIn = async () => {
+    if (!rcId || !clockLocationId || !clockRoleId) {
+      setRcError('No location or role found. Contact HR to update your RotaCloud profile.')
+      return
+    }
+    setRcClocking(true)
+    setRcError('')
+    // Geolocation
+    setGeoStatus('checking')
+    try {
+      const pos = await new Promise<GeolocationPosition>((res, rej) =>
+        navigator.geolocation.getCurrentPosition(res, rej, { timeout: 10000 })
+      )
+      const { latitude: lat, longitude: lng } = pos.coords
+      if (clockLocation?.latitude && clockLocation?.longitude) {
+        const dist = haversineDistance(lat, lng, clockLocation.latitude, clockLocation.longitude)
+        setGeoDistance(Math.round(dist))
+        setGeoStatus(dist <= (clockLocation.radius ?? 500) ? 'ok' : 'far')
+      } else {
+        setGeoStatus('ok')
+      }
+    } catch {
+      setGeoStatus('denied')
+    }
+    // Clock in regardless of geo result
+    try {
+      const nowUnix = Math.floor(Date.now() / 1000)
+      const att = await rotaClockIn(rcId, clockLocationId, clockRoleId, nowUnix, todayShift?.start_time)
+      setTodayAtt(att)
+    } catch (e) {
+      setRcError(String(e))
+    } finally {
+      setRcClocking(false)
+    }
+  }
+
+  const handleRotaClockOut = async () => {
+    if (!todayAtt?.id) return
+    setRcClocking(true)
+    setRcError('')
+    try {
+      const nowUnix = Math.floor(Date.now() / 1000)
+      const att = await rotaClockOut(todayAtt.id, nowUnix)
+      setTodayAtt(att)
+    } catch (e) {
+      setRcError(String(e))
+    } finally {
+      setRcClocking(false)
+    }
+  }
 
   // This week
   const weekStart   = weekMonday(new Date())
@@ -354,11 +454,6 @@ export default function EmployeeDashboard() {
   const firstName = (currentUser?.name ?? 'there').split(' ')[0]
   const dateLabel = liveTime.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 
-  const handleClockIn = async () => {
-    setClockingIn(true)
-    try { await clockIn() } finally { setClockingIn(false) }
-  }
-
   const num = 'tabular-nums'
 
 
@@ -379,7 +474,7 @@ export default function EmployeeDashboard() {
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>
               <div className="flex items-center gap-2 mb-3 flex-wrap">
-                {currentlyClockedIn ? (
+                {isLiveClockedIn ? (
                   <span className="inline-flex items-center gap-1.5 bg-green-500/20 text-green-300 px-2.5 py-0.5 rounded-full text-[11px] font-semibold">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> WORKING
                   </span>
@@ -395,10 +490,10 @@ export default function EmployeeDashboard() {
                 <span className="text-[#5DADE2]">{firstName}.</span>
               </h1>
               <p className="text-white/50 text-sm mt-2 max-w-xs">
-                {currentlyClockedIn
-                  ? `You've been working for ${liveStr} today.`
-                  : liveHours > 0
-                    ? `You logged ${String(hrs).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m today.`
+                {isLiveClockedIn
+                  ? `You've been working for ${rcLiveStr} today.`
+                  : rcElapsed > 0
+                    ? `You logged ${String(rcHrs).padStart(2,'0')}h ${String(rcMins).padStart(2,'0')}m today.`
                     : "You haven't clocked in yet today."}
               </p>
             </div>
@@ -416,7 +511,7 @@ export default function EmployeeDashboard() {
           {/* 4 stat chips */}
           <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { l: "Today's Hours",   v: liveStr,                           c: '#5DADE2'  },
+              { l: "Today's Hours",   v: rcLiveStr,                         c: '#5DADE2'  },
               { l: 'Leave Remaining', v: `${Math.max(0, LEAVE_TOTAL - totalUsed)}d`, c: '#6EE7B7' },
               { l: 'Week Hours',      v: fmtHours(weekHours),               c: '#C4B5FD'  },
               { l: 'This Month',      v: `${attendancePct}%`,               c: '#FCD34D'  },
@@ -483,18 +578,20 @@ export default function EmployeeDashboard() {
       {/* ── Row 1: Clock | Workspace | Leave Balances ── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
 
-        {/* Clock card */}
+        {/* RotaCloud Clock card */}
         <div className="lg:col-span-3 card p-5 flex flex-col items-center gap-3">
           <div className="flex items-center justify-between w-full">
             <p className="text-sm font-bold text-secondary">Time Clock</p>
-            <span className="text-[10px] text-gray-400 tabular-nums">{todayYMD}</span>
+            {rcFetching
+              ? <RefreshCw size={12} className="text-gray-400 animate-spin" />
+              : <span className="text-[10px] text-gray-400 tabular-nums">{todayYMD}</span>}
           </div>
 
           {/* Ring */}
           <div className="relative flex items-center justify-center" style={{ width: 140, height: 140 }}>
-            <Ring progress={ringPct} color="#2E86C1" size={140} stroke={12} />
+            <Ring progress={rcRingPct} color={isLiveClockedIn ? '#22C55E' : '#2E86C1'} size={140} stroke={12} />
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <p className={`text-lg font-bold text-secondary font-mono ${num}`}>{liveStr}</p>
+              <p className={`text-lg font-bold text-secondary font-mono ${num}`}>{rcLiveStr}</p>
               <p className="text-[10px] text-gray-400 mt-0.5">of {TARGET}h target</p>
             </div>
           </div>
@@ -503,26 +600,60 @@ export default function EmployeeDashboard() {
           <div className="w-full bg-secondary rounded-xl px-4 py-2.5 flex justify-between items-center">
             <div className="text-center">
               <p className="text-[9px] text-gray-400 uppercase tracking-widest font-medium">In</p>
-              <p className={`text-sm font-bold text-white mt-0.5 ${num}`}>{punchIn ? fmt12(punchIn) : '--:--'}</p>
+              <p className={`text-sm font-bold text-white mt-0.5 ${num}`}>
+                {rcClockedInTime ? fmt12(unixToHHMM(rcClockedInTime) ?? '') : '--:--'}
+              </p>
             </div>
             <div className="w-px h-8 bg-white/10" />
             <div className="text-center">
               <p className="text-[9px] text-gray-400 uppercase tracking-widest font-medium">Out</p>
-              <p className={`text-sm font-bold text-white mt-0.5 ${num}`}>{punchOut ? fmt12(punchOut) : '--:--'}</p>
+              <p className={`text-sm font-bold text-white mt-0.5 ${num}`}>
+                {rcClockedOutTime ? fmt12(unixToHHMM(rcClockedOutTime) ?? '') : '--:--'}
+              </p>
             </div>
           </div>
 
-          {currentlyClockedIn ? (
+          {/* Location badge */}
+          {clockLocation && (
+            <div className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+              geoStatus === 'ok'  ? 'bg-green-50 text-green-700'
+              : geoStatus === 'far' ? 'bg-amber-50 text-amber-700'
+              : 'bg-gray-50 text-gray-500'
+            }`}>
+              <MapPin size={11} className="shrink-0" />
+              <span className="font-medium truncate">{clockLocation.name}</span>
+              {geoDistance !== null && (
+                <span className="ml-auto font-bold tabular-nums shrink-0">{geoDistance}m</span>
+              )}
+            </div>
+          )}
+
+          {/* Error */}
+          {rcError && (
+            <p className="text-[10px] text-red-500 w-full text-center">{rcError}</p>
+          )}
+
+          {/* Action button */}
+          {!rcId ? (
+            <p className="text-xs text-gray-400 text-center">Not linked to RotaCloud</p>
+          ) : isLiveClockedIn ? (
             <button
-              onClick={() => clockOut(currentlyClockedIn.id, currentlyClockedIn.startTime!)}
-              className="w-full py-2.5 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded-xl transition flex items-center justify-center gap-2">
-              <Clock size={14} /> Punch Out
+              onClick={handleRotaClockOut} disabled={rcClocking}
+              className="w-full py-2.5 bg-red-500 hover:bg-red-600 text-white text-sm font-bold rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-60">
+              <Clock size={14} /> {rcClocking ? 'Clocking out…' : 'Punch Out'}
             </button>
+          ) : todayAtt?.out_time_clocked ? (
+            <div className="w-full py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-center">
+              <p className="text-xs text-gray-500 font-semibold">Shift Complete</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">{fmtHours(todayAtt.hours)} today</p>
+            </div>
           ) : (
             <button
-              onClick={handleClockIn} disabled={clockingIn}
+              onClick={handleRotaClockIn} disabled={rcClocking}
               className="w-full py-2.5 bg-primary hover:bg-primary/90 text-white text-sm font-bold rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-60">
-              <Clock size={14} /> {clockingIn ? 'Clocking in…' : 'Punch In'}
+              {geoStatus === 'checking'
+                ? <><Navigation size={14} className="animate-pulse" /> Getting location…</>
+                : <><Clock size={14} /> {rcClocking ? 'Clocking in…' : 'Punch In'}</>}
             </button>
           )}
 
