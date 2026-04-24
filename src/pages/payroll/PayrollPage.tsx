@@ -1,7 +1,10 @@
 import { useState } from 'react'
+import { doc, getDoc } from 'firebase/firestore'
+import { db } from '../../config/firebase'
 import {
   Plus, ChevronRight, Check, Clock, Banknote,
   Wallet, Users, AlertCircle, X, DollarSign, Download, RefreshCw,
+  Star,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
@@ -11,7 +14,11 @@ import { useAppSelector } from '../../store'
 import { fmtPKR, PAY_TYPE_LABELS } from '../../utils/payroll'
 import PayslipModal from './components/PayslipModal'
 import { cn } from '../../utils/cn'
-import { fetchRotaAttendance, monthToUnix, sumHoursByUser } from '../../services/rotacloud'
+import {
+  fetchRotaAttendance, fetchRotaShifts, monthToUnix,
+  type RotaAttendance, type RotaShift,
+} from '../../services/rotacloud'
+import { unixToLocalDate } from '../../hooks/useRotaAttendance'
 
 type PageTab = 'Runs' | 'Advances' | 'Loans'
 
@@ -43,8 +50,9 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   // Per-employee variable pay maps
   const active = employees.filter(e => e.status === 'active')
   const [hoursMap,       setHoursMap]       = useState<Record<string, string>>({})
-  const [qaMap,          setQaMap]          = useState<Record<string, string>>({})
   const [punctualityMap, setPunctualityMap] = useState<Record<string, string>>({})
+  // Tracks RotaCloud-derived punctuality eligibility: empId → { lateCount, completedShifts }
+  const [lateMap, setLateMap] = useState<Record<string, { lateCount: number; completedShifts: number }>>({})
 
   // RotaCloud hours import
   const [rotaImporting, setRotaImporting] = useState(false)
@@ -57,26 +65,96 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
     setRotaStatus(null)
     try {
       const { start, end } = monthToUnix(month)
-      const records = await fetchRotaAttendance(start, end)
-      const byRotaId = sumHoursByUser(records)
+      const [attRecords, shiftRecords] = await Promise.all([
+        fetchRotaAttendance(start, end),
+        fetchRotaShifts(start, end),
+      ])
 
-      // Build rotacloudId → Firestore employee ID lookup
-      const rotaToFirestore: Record<number, string> = {}
-      employees.forEach(e => {
-        if (e.rotacloudId) rotaToFirestore[e.rotacloudId] = e.id
-      })
+      // Build rotacloudId → FirebaseEmployee lookup
+      const rotaToEmp: Record<number, typeof employees[number]> = {}
+      employees.forEach(e => { if (e.rotacloudId) rotaToEmp[Number(e.rotacloudId)] = e })
 
-      const newHours: Record<string, string> = { ...hoursMap }
+      // Group attendance + shifts by RotaCloud user
+      const byUser: Record<number, { atts: RotaAttendance[]; shifts: RotaShift[] }> = {}
+      for (const r of attRecords) {
+        if (r.deleted) continue
+        if (!byUser[r.user]) byUser[r.user] = { atts: [], shifts: [] }
+        byUser[r.user].atts.push(r)
+      }
+      for (const s of shiftRecords) {
+        if (s.deleted || !s.published || s.open) continue
+        if (!byUser[s.user]) byUser[s.user] = { atts: [], shifts: [] }
+        byUser[s.user].shifts.push(s)
+      }
+
+      const newHours: Record<string, string>       = { ...hoursMap }
+      const newPunc:  Record<string, string>       = { ...punctualityMap }
+      const newLate:  typeof lateMap               = {}
       let matched = 0
-      Object.entries(byRotaId).forEach(([rotaIdStr, hrs]) => {
-        const firestoreId = rotaToFirestore[Number(rotaIdStr)]
-        if (firestoreId) {
-          newHours[firestoreId] = String(Math.round(hrs * 100) / 100)
-          matched++
+
+      for (const [rotaIdStr, { atts, shifts }] of Object.entries(byUser)) {
+        const emp = rotaToEmp[Number(rotaIdStr)]
+        if (!emp) continue
+
+        // Check Firestore for admin-approved shift summary first
+        let approvedHours:    number | null = null
+        let lateCount:        number | null = null
+        let completedShifts:  number | null = null
+        try {
+          const snap = await getDoc(doc(db, 'shift_approvals', `${emp.id}_${month}`))
+          if (snap.exists()) {
+            const d = snap.data()
+            approvedHours   = d.approvedHours   as number
+            lateCount       = d.lateCount       as number
+            completedShifts = d.completedShifts as number
+          }
+        } catch { /* no pre-approval — fall through */ }
+
+        if (approvedHours !== null) {
+          newHours[emp.id] = String(approvedHours)
+        } else {
+          // Calculate from raw RotaCloud data, capping hourly employees to scheduled shift time
+          const isHourly = emp.payType === 'hourly'
+          const shiftByDate = new Map<string, RotaShift>()
+          for (const s of shifts) {
+            const d = unixToLocalDate(s.start_time)
+            if (!shiftByDate.has(d)) shiftByDate.set(d, s)
+          }
+
+          let totalHrs = 0; let late = 0; let completed = 0
+          for (const att of atts) {
+            if (!att.approved) continue
+            if (att.in_time_clocked && att.out_time_clocked) completed++
+            if (att.minutes_late > 0) late++
+            let hrs = att.hours
+            if (isHourly) {
+              const d    = unixToLocalDate((att.in_time_clocked ?? att.in_time) as number)
+              const shift = shiftByDate.get(d)
+              if (shift) {
+                const scheduled = (shift.end_time - shift.start_time) / 3600 - att.minutes_break / 60
+                hrs = Math.min(att.hours, Math.max(0, scheduled))
+              }
+            }
+            totalHrs += hrs
+          }
+          newHours[emp.id] = String(Math.round(totalHrs * 100) / 100)
+          lateCount       = late
+          completedShifts = completed
         }
-      })
+
+        // Track eligibility and auto-zero punctuality if not eligible
+        if (lateCount !== null && completedShifts !== null) {
+          newLate[emp.id] = { lateCount, completedShifts }
+          const qualifies = lateCount <= 3 && completedShifts >= 15
+          if (!qualifies) newPunc[emp.id] = '0'
+        }
+        matched++
+      }
+
       setHoursMap(newHours)
-      setRotaStatus({ matched, total: Object.keys(byRotaId).length })
+      setPunctualityMap(newPunc)
+      setLateMap(newLate)
+      setRotaStatus({ matched, total: Object.keys(byUser).length })
     } catch (e) {
       setRotaError(e instanceof Error ? e.message : 'Import failed')
     } finally {
@@ -112,7 +190,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         toNumMap(hoursMap),
         advMap, loanMap,
         {}, {},
-        toNumMap(qaMap),
+        {},
         toNumMap(punctualityMap),
         {}, {},
       )
@@ -213,17 +291,18 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                           <th className={thCls}>Employee</th>
                           <th className={thCls}>Rate (PKR/hr)</th>
                           <th className={thCls}>Hours Worked</th>
-                          <th className={thCls}>QA Bonus (PKR)</th>
                           <th className={thCls}>Punctuality Bonus (PKR)</th>
+                          <th className={thCls}>Eligibility</th>
                           <th className={thCls}>Est. Basic Pay</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {hourly.map(emp => {
                           const hrs  = parseFloat(hoursMap[emp.id] ?? '') || 0
-                          const qa   = parseFloat(qaMap[emp.id] ?? '') || 0
                           const punc = parseFloat(punctualityMap[emp.id] ?? '') || 0
                           const est  = Math.round((emp.hourlyRate ?? 0) * hrs)
+                          const eli  = lateMap[emp.id]
+                          const qualifies = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : null
                           return (
                             <tr key={emp.id} className="hover:bg-gray-50/50">
                               <td className={tdCls}>
@@ -241,21 +320,31 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                               </td>
                               <td className={tdCls}>
                                 <input type="number" min={0} step={100} placeholder="0"
-                                  value={qaMap[emp.id] ?? ''}
-                                  onChange={e => setQaMap(m => ({ ...m, [emp.id]: e.target.value }))}
-                                  className="w-24 border border-green-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-200 text-green-700" />
-                              </td>
-                              <td className={tdCls}>
-                                <input type="number" min={0} step={100} placeholder="0"
                                   value={punctualityMap[emp.id] ?? ''}
                                   onChange={e => setPunctualityMap(m => ({ ...m, [emp.id]: e.target.value }))}
-                                  className="w-24 border border-blue-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-200 text-blue-700" />
+                                  className={cn(
+                                    'w-24 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 border',
+                                    qualifies === false
+                                      ? 'border-red-200 text-red-400 focus:ring-red-200'
+                                      : 'border-blue-200 text-blue-700 focus:ring-blue-200'
+                                  )} />
+                              </td>
+                              <td className={tdCls}>
+                                {qualifies === null ? (
+                                  <span className="text-[10px] text-gray-300">Import first</span>
+                                ) : qualifies ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                                    <Star size={9} />Qualifies
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5" title={`Late ${eli?.lateCount}× · ${eli?.completedShifts} shifts`}>
+                                    Not eligible
+                                  </span>
+                                )}
                               </td>
                               <td className={tdCls}>
                                 <span className={hrs > 0 ? 'font-semibold text-gray-800' : 'text-gray-300'}>
-                                  {hrs > 0
-                                    ? `PKR ${(est + qa + punc).toLocaleString()}`
-                                    : '—'}
+                                  {hrs > 0 ? `PKR ${(est + punc).toLocaleString()}` : '—'}
                                 </span>
                               </td>
                             </tr>
@@ -282,8 +371,8 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                           <th className={thCls}>Fixed Salary</th>
                           <th className={thCls}>Hours / Threshold</th>
                           <th className={thCls}>OT Preview</th>
-                          <th className={thCls}>QA Bonus (PKR)</th>
                           <th className={thCls}>Punctuality Bonus (PKR)</th>
+                          <th className={thCls}>Eligibility</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
@@ -292,6 +381,8 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                           const threshold = emp.monthlyHours ?? 160
                           const otHrs     = Math.max(0, hrs - threshold)
                           const otPay     = Math.round(otHrs * (emp.overtimeRate ?? 0))
+                          const eli       = lateMap[emp.id]
+                          const qualifies = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : null
                           return (
                             <tr key={emp.id} className="hover:bg-gray-50/50">
                               <td className={tdCls}>
@@ -317,15 +408,27 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                               </td>
                               <td className={tdCls}>
                                 <input type="number" min={0} step={100} placeholder="0"
-                                  value={qaMap[emp.id] ?? ''}
-                                  onChange={e => setQaMap(m => ({ ...m, [emp.id]: e.target.value }))}
-                                  className="w-24 border border-green-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-200 text-green-700" />
-                              </td>
-                              <td className={tdCls}>
-                                <input type="number" min={0} step={100} placeholder="0"
                                   value={punctualityMap[emp.id] ?? ''}
                                   onChange={e => setPunctualityMap(m => ({ ...m, [emp.id]: e.target.value }))}
-                                  className="w-24 border border-blue-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-200 text-blue-700" />
+                                  className={cn(
+                                    'w-24 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 border',
+                                    qualifies === false
+                                      ? 'border-red-200 text-red-400 focus:ring-red-200'
+                                      : 'border-blue-200 text-blue-700 focus:ring-blue-200'
+                                  )} />
+                              </td>
+                              <td className={tdCls}>
+                                {qualifies === null ? (
+                                  <span className="text-[10px] text-gray-300">Import first</span>
+                                ) : qualifies ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                                    <Star size={9} />Qualifies
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5" title={`Late ${eli?.lateCount}× · ${eli?.completedShifts} shifts`}>
+                                    Not eligible
+                                  </span>
+                                )}
                               </td>
                             </tr>
                           )
@@ -334,7 +437,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                     </table>
                   </div>
                   <p className="text-[11px] text-gray-400 mt-2">
-                    Leave bonus fields blank (or 0) for employees who did not earn them this month.
+                    Punctuality bonus qualifies when late ≤ 3 times AND ≥ 15 completed shifts. Import from RotaCloud to auto-check.
                   </p>
                 </div>
               )}
@@ -524,7 +627,7 @@ function RunDetail({ run, onBack }: { run: PayrollRun; onBack: () => void }) {
       ]
     })
     const detailWs = XLSX.utils.aoa_to_sheet([headers, ...rows])
-    detailWs['!cols'] = headers.map((h, i) => ({ wch: i === 0 ? 28 : i === 1 ? 18 : 14 }))
+    detailWs['!cols'] = headers.map((_h, i) => ({ wch: i === 0 ? 28 : i === 1 ? 18 : 14 }))
     XLSX.utils.book_append_sheet(wb, detailWs, 'Payroll Detail')
 
     XLSX.writeFile(wb, `CCE_Payroll_${run.month}_${run.status}.xlsx`)

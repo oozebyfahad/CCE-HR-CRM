@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import {
+  collection, query, where, getDocs, doc, setDoc, serverTimestamp,
+} from 'firebase/firestore'
+import { db } from '../../../config/firebase'
+import {
   Clock, ChevronLeft, ChevronRight, Plus, Edit2,
   CheckCircle2, History, AlarmClock, UserCheck, RefreshCw, AlertCircle, Download,
+  MoreVertical, Check, FileText, Info, Trash2,
 } from 'lucide-react'
 import type { FirebaseEmployee } from '../../../hooks/useFirebaseEmployees'
 import {
@@ -296,6 +301,149 @@ function WeekBar({ days, entries }: { days: Date[]; entries: TimeEntry[] }) {
   )
 }
 
+// ── Note modal ────────────────────────────────────────────────────────
+function NoteModal({ date, initial, onSave, onClose }: {
+  date: string; initial: string
+  onSave: (text: string) => void; onClose: () => void
+}) {
+  const [text, setText] = useState(initial)
+  const dayLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <p className="text-sm font-bold text-secondary">Shift Note</p>
+            <p className="text-xs text-gray-400 mt-0.5">{dayLabel}</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 text-sm">✕</button>
+        </div>
+        <div className="p-5">
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            rows={4}
+            placeholder="Add a note about this shift…"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+            autoFocus
+          />
+        </div>
+        <div className="px-5 pb-5 flex gap-2 justify-end">
+          <button onClick={onClose} className="btn-outline text-sm px-4">Cancel</button>
+          <button onClick={() => onSave(text)} className="btn-primary text-sm px-5">Save Note</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Shift info modal ───────────────────────────────────────────────────
+function ShiftInfoModal({ date, att, shift, note, onClose }: {
+  date: string; att?: RotaAttendance; shift?: RotaShift; note: string; onClose: () => void
+}) {
+  const dayLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const row = (label: string, val: React.ReactNode) => (
+    <div className="flex justify-between items-start gap-4">
+      <span className="text-xs text-gray-400 shrink-0">{label}</span>
+      <span className="text-xs font-medium text-gray-800 text-right">{val ?? '—'}</span>
+    </div>
+  )
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <p className="text-sm font-bold text-secondary">Shift Information</p>
+            <p className="text-xs text-gray-400 mt-0.5">{dayLabel}</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 text-sm">✕</button>
+        </div>
+        <div className="p-5 space-y-3">
+          {shift && (
+            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Scheduled Shift</p>
+              {row('Start', shift ? unixToHHMM(shift.start_time) : undefined)}
+              {row('Finish', shift ? unixToHHMM(shift.end_time) : undefined)}
+              {row('Break', shift ? `${(shift.minutes_break ?? 0)}m` : undefined)}
+              {row('Shift ID', `#${shift.id}`)}
+            </div>
+          )}
+          {att && (
+            <div className="bg-blue-50 rounded-xl p-3 space-y-2">
+              <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wide">Attendance Record</p>
+              {row('Clock In', att.in_time_clocked ? unixToHHMM(att.in_time_clocked) : 'Not clocked')}
+              {row('Clock Out', att.out_time_clocked ? unixToHHMM(att.out_time_clocked) : 'Not clocked')}
+              {row('Hours', `${att.hours}h`)}
+              {row('Break', `${att.minutes_break}m`)}
+              {row('Late', att.minutes_late > 0 ? `${att.minutes_late}m` : 'On time')}
+              {row('Approved', att.approved ? 'Yes' : 'No')}
+              {row('In Method', att.in_method)}
+              {row('Record ID', `#${att.id}`)}
+            </div>
+          )}
+          {note && (
+            <div className="bg-amber-50 rounded-xl p-3">
+              <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wide mb-1">Note</p>
+              <p className="text-xs text-gray-700">{note}</p>
+            </div>
+          )}
+        </div>
+        <div className="px-5 pb-5 flex justify-end">
+          <button onClick={onClose} className="btn-primary text-sm px-5">Close</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Shift action dropdown ──────────────────────────────────────────────
+function ShiftActionDropdown({ date, att, shift, approved, note, late, deleted, onApprove, onNote, onMarkLate, onDelete, onInfo }: {
+  date: string; att?: RotaAttendance; shift?: RotaShift
+  approved: boolean; note: string; late: boolean; deleted: boolean
+  onApprove: () => void; onNote: () => void; onMarkLate: () => void
+  onDelete: () => void; onInfo: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  if (!att && !shift) return <span className="text-gray-200">—</span>
+  type MenuItem = { label: string; icon: React.ElementType; color?: string; onClick: () => void; sep?: boolean }
+  const items: MenuItem[] = [
+    { label: approved ? 'Approved ✓' : 'Approve Shift', icon: Check, color: approved ? 'text-green-600 font-semibold' : undefined, onClick: () => { onApprove(); setOpen(false) } },
+    { label: note ? 'Edit Note' : 'Add Note', icon: FileText, onClick: () => { onNote(); setOpen(false) } },
+    { label: late ? 'Unmark Late' : 'Mark as Late', icon: AlarmClock, color: late ? 'text-amber-600 font-semibold' : undefined, onClick: () => { onMarkLate(); setOpen(false) }, sep: true },
+    { label: 'Shift Information', icon: Info, onClick: () => { onInfo(); setOpen(false) } },
+    { label: 'History', icon: History, onClick: () => setOpen(false) },
+    { label: deleted ? 'Restore' : 'Delete', icon: Trash2, color: 'text-red-500', onClick: () => { onDelete(); setOpen(false) }, sep: true },
+  ]
+  return (
+    <div ref={ref} className="relative flex items-center justify-center">
+      <button onClick={() => setOpen(v => !v)}
+        className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition">
+        <MoreVertical size={14} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-8 z-40 bg-white border border-gray-100 rounded-xl shadow-xl py-1 min-w-[175px]">
+          {items.map((item, i) => (
+            <div key={i}>
+              {item.sep && <div className="my-1 border-t border-gray-100" />}
+              <button onClick={item.onClick}
+                className={cn('w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 transition', item.color ?? 'text-gray-700')}>
+                <item.icon size={12} className="shrink-0" />
+                {item.label}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main TimesheetTab ──────────────────────────────────────────────────
 // ── RotaCloud Monthly Timesheet ────────────────────────────────────────
 
@@ -358,6 +506,17 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
   const [error,       setError]       = useState('')
   const [downloading, setDownloading] = useState(false)
 
+  // Per-shift local overrides (synced to Firestore)
+  const [localApproved,  setLocalApproved]  = useState<Set<string>>(new Set())
+  const [localNotes,     setLocalNotes]     = useState<Map<string, string>>(new Map())
+  const [localLate,      setLocalLate]      = useState<Set<string>>(new Set())
+  const [localDeleted,   setLocalDeleted]   = useState<Set<string>>(new Set())
+  const [noteModal,      setNoteModal]      = useState<{ date: string; current: string } | null>(null)
+  const [infoDate,       setInfoDate]       = useState<string | null>(null)
+  const [approving,      setApproving]      = useState(false)
+  const [approveStatus,  setApproveStatus]  = useState<{ ok: boolean; msg: string } | null>(null)
+  const currentUser = useAppSelector(s => s.auth.user)
+
   const maxMonth = currentMonth()
   const rcId = emp.rotacloudId ? Number(emp.rotacloudId) : null
   const todayStr = new Date().toISOString().slice(0, 10)
@@ -404,6 +563,62 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
     return () => { cancelled = true }
   }, [month, rcId])
 
+  // Load per-shift notes/flags from Firestore
+  useEffect(() => {
+    if (!emp.id) return
+    let cancelled = false
+    getDocs(query(
+      collection(db, 'shift_notes'),
+      where('employeeId', '==', emp.id),
+      where('month', '==', month),
+    )).then(snap => {
+      if (cancelled) return
+      const approved = new Set<string>()
+      const notes    = new Map<string, string>()
+      const late     = new Set<string>()
+      const deleted  = new Set<string>()
+      snap.docs.forEach(d => {
+        const data = d.data()
+        if (data.approved)    approved.add(data.date as string)
+        if (data.note)        notes.set(data.date as string, data.note as string)
+        if (data.markedLate)  late.add(data.date as string)
+        if (data.deleted)     deleted.add(data.date as string)
+      })
+      setLocalApproved(approved)
+      setLocalNotes(notes)
+      setLocalLate(late)
+      setLocalDeleted(deleted)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [emp.id, month])
+
+  async function saveShiftNote(date: string, patch: Record<string, unknown>) {
+    await setDoc(doc(db, 'shift_notes', `${emp.id}_${date}`), {
+      employeeId: emp.id, month, date, ...patch,
+    }, { merge: true })
+  }
+
+  const handleApproveShift = (date: string) => {
+    const was = localApproved.has(date)
+    setLocalApproved(prev => { const n = new Set(prev); was ? n.delete(date) : n.add(date); return n })
+    saveShiftNote(date, { approved: !was }).catch(() => {})
+  }
+  const handleMarkLate = (date: string) => {
+    const was = localLate.has(date)
+    setLocalLate(prev => { const n = new Set(prev); was ? n.delete(date) : n.add(date); return n })
+    saveShiftNote(date, { markedLate: !was }).catch(() => {})
+  }
+  const handleDeleteShift = (date: string) => {
+    const was = localDeleted.has(date)
+    setLocalDeleted(prev => { const n = new Set(prev); was ? n.delete(date) : n.add(date); return n })
+    saveShiftNote(date, { deleted: !was }).catch(() => {})
+  }
+  const handleSaveNote = (date: string, note: string) => {
+    setLocalNotes(prev => { const n = new Map(prev); n.set(date, note); return n })
+    saveShiftNote(date, { note }).catch(() => {})
+    setNoteModal(null)
+  }
+
   // Index attendance by date — use actual clock-in if present, else scheduled
   const attByDate = new Map<string, RotaAttendance>()
   for (const r of attendance) {
@@ -428,17 +643,67 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
     const date = `${month}-${dd}`
     return { date, att: attByDate.get(date), shift: shiftByDate.get(date) }
   })
+  const visibleDays = days.filter(d => !localDeleted.has(d.date))
 
-  // Totals
-  const attList      = [...attByDate.values()]
+  // Totals (exclude locally deleted rows)
+  const attList      = [...attByDate.values()].filter(r => {
+    const d = unixToLocalDate((r.in_time_clocked ?? r.in_time) as number)
+    return !localDeleted.has(d)
+  })
   const totalHours   = attList.reduce((s, r) => s + r.hours, 0)
   const totalDays    = attList.filter(r => r.hours > 0 || r.in_time_clocked).length
   const lateDays     = attList.filter(r => r.minutes_late > 30).length
   const approvedDays = attList.filter(r => r.approved).length
   const overtimeH    = attList.reduce((s, r) => s + Math.max(0, r.hours - 8), 0)
   const absentDays   = days.filter(({ date, att }) =>
-    !att && !isWeekend(date) && date < todayStr
+    !att && !isWeekend(date) && date < todayStr && !localDeleted.has(date)
   ).length
+
+  const completedAtt = attendance.filter(a => a.in_time_clocked && a.out_time_clocked)
+
+  const handleApproveAll = async () => {
+    if (!rcId) return
+    setApproving(true)
+    setApproveStatus(null)
+    try {
+      const isHourly = emp.payType === 'hourly'
+      let approvedHours = 0
+      let lateCount = 0
+      let completedShifts = 0
+      for (const att of attendance) {
+        if (!att.in_time_clocked || !att.out_time_clocked) continue
+        completedShifts++
+        if (att.minutes_late > 0) lateCount++
+        let hrs = att.hours
+        if (isHourly) {
+          const d = unixToLocalDate(att.in_time_clocked)
+          const shift = shiftByDate.get(d)
+          if (shift) {
+            const scheduledHrs = (shift.end_time - shift.start_time) / 3600 - att.minutes_break / 60
+            hrs = Math.min(att.hours, Math.max(0, scheduledHrs))
+          }
+        }
+        approvedHours += hrs
+      }
+      await setDoc(doc(db, 'shift_approvals', `${emp.id}_${month}`), {
+        employeeId:     emp.id,
+        month,
+        approvedHours:  Math.round(approvedHours * 100) / 100,
+        lateCount,
+        completedShifts,
+        approvedAt:     serverTimestamp(),
+        approvedBy:     currentUser?.name ?? currentUser?.email ?? 'Admin',
+      })
+      setApproveStatus({
+        ok:  true,
+        msg: `${completedShifts} shifts approved · ${Math.round(approvedHours * 10) / 10}h${isHourly ? ' (capped to scheduled hours)' : ''} · sent to payroll`,
+      })
+    } catch (err) {
+      setApproveStatus({ ok: false, msg: err instanceof Error ? err.message : 'Failed to save approval' })
+    } finally {
+      setApproving(false)
+    }
+  }
 
   if (!rcId) {
     return (
@@ -487,6 +752,19 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
               ? <><RefreshCw size={12} className="animate-spin" />Exporting…</>
               : <><Download size={12} />Download Excel</>}
           </button>
+          <button
+            onClick={handleApproveAll}
+            disabled={approving || loading || completedAtt.length === 0}
+            className={cn(
+              'ml-1 flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition',
+              approving || loading || completedAtt.length === 0
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-green-600 text-white hover:bg-green-700 shadow-sm'
+            )}>
+            {approving
+              ? <><RefreshCw size={12} className="animate-spin" />Approving…</>
+              : <><CheckCircle2 size={12} />Approve All ({completedAtt.length})</>}
+          </button>
         </div>
 
         {/* Summary chips */}
@@ -515,9 +793,41 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
         </div>
       )}
 
+      {/* Approve-all status banner */}
+      {approveStatus && (
+        <div className={cn(
+          'flex items-center gap-2 rounded-xl px-4 py-3 text-xs',
+          approveStatus.ok
+            ? 'bg-green-50 border border-green-200 text-green-700'
+            : 'bg-red-50 border border-red-200 text-red-600'
+        )}>
+          {approveStatus.ok ? <CheckCircle2 size={13} className="shrink-0" /> : <AlertCircle size={13} className="shrink-0" />}
+          <span className="flex-1">{approveStatus.msg}</span>
+          <button onClick={() => setApproveStatus(null)} className="text-gray-400 hover:text-gray-600 ml-auto">✕</button>
+        </div>
+      )}
+
+      {/* Note modal */}
+      {noteModal && (
+        <NoteModal
+          date={noteModal.date}
+          initial={noteModal.current}
+          onSave={text => handleSaveNote(noteModal.date, text)}
+          onClose={() => setNoteModal(null)}
+        />
+      )}
+
+      {/* Shift info modal */}
+      {infoDate && (() => {
+        const found = days.find(x => x.date === infoDate)
+        return found
+          ? <ShiftInfoModal date={infoDate} att={found.att} shift={found.shift} note={localNotes.get(infoDate) ?? ''} onClose={() => setInfoDate(null)} />
+          : null
+      })()}
+
       {/* ── Timesheet table ── */}
       <div className="rounded-xl border border-gray-200 overflow-x-auto shadow-sm">
-        <table className="w-full text-xs min-w-[780px] border-collapse">
+        <table className="w-full text-xs min-w-[880px] border-collapse">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
               <th className="px-4 py-3 text-left font-bold text-gray-500 uppercase tracking-wide text-[10px] whitespace-nowrap w-24">Date</th>
@@ -529,6 +839,7 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
               <th className="px-3 py-3 text-right font-bold text-gray-500 uppercase tracking-wide text-[10px] whitespace-nowrap">Overtime</th>
               <th className="px-3 py-3 text-right font-bold text-gray-500 uppercase tracking-wide text-[10px] whitespace-nowrap">Late</th>
               <th className="px-4 py-3 text-center font-bold text-gray-500 uppercase tracking-wide text-[10px]">Status</th>
+              <th className="px-3 py-3 text-center font-bold text-gray-500 uppercase tracking-wide text-[10px]">Actions</th>
             </tr>
             {/* Sub-headers for Scheduled / Actual columns */}
             <tr className="border-b border-gray-100 bg-gray-50/60">
@@ -537,11 +848,11 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
               <td className="px-3 pb-2 text-center text-[9px] text-gray-400 font-semibold">Finish</td>
               <td className="px-3 pb-2 text-center text-[9px] text-gray-500 font-semibold">In</td>
               <td className="px-3 pb-2 text-center text-[9px] text-gray-500 font-semibold">Out</td>
-              <td colSpan={5} />
+              <td colSpan={6} />
             </tr>
           </thead>
           <tbody>
-            {days.map(({ date, att, shift }) => {
+            {visibleDays.map(({ date, att, shift }) => {
               const weekend  = isWeekend(date)
               const future   = date > todayStr
               const isToday  = date === todayStr
@@ -661,7 +972,30 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
 
                   {/* Status */}
                   <td className="px-4 py-2.5 text-center">
-                    <StatusBadge status={status} approved={att?.approved} />
+                    <div className="flex items-center justify-center gap-1">
+                      <StatusBadge status={status} approved={att?.approved || localApproved.has(date)} />
+                      {localNotes.has(date) && (
+                        <span title={localNotes.get(date)} className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Actions */}
+                  <td className="px-3 py-2.5 text-center">
+                    <ShiftActionDropdown
+                      date={date}
+                      att={att}
+                      shift={shift}
+                      approved={localApproved.has(date)}
+                      note={localNotes.get(date) ?? ''}
+                      late={localLate.has(date)}
+                      deleted={localDeleted.has(date)}
+                      onApprove={() => handleApproveShift(date)}
+                      onNote={() => setNoteModal({ date, current: localNotes.get(date) ?? '' })}
+                      onMarkLate={() => handleMarkLate(date)}
+                      onDelete={() => handleDeleteShift(date)}
+                      onInfo={() => setInfoDate(date)}
+                    />
                   </td>
                 </tr>
               )
@@ -690,6 +1024,7 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
               <td className="px-4 py-3 text-center">
                 <span className="text-[10px] text-violet-600 font-semibold">{approvedDays} approved</span>
               </td>
+              <td />
             </tr>
           </tfoot>
         </table>
