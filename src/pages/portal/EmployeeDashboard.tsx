@@ -11,15 +11,17 @@ import {
 } from 'lucide-react'
 import {
   fetchRotaAttendance, fetchRotaShifts, fetchRotaLocations, fetchRotaUser,
+  fetchRotaLeave, fetchRotaLeaveTypes,
   rotaClockIn, rotaClockOut,
   type RotaAttendance, type RotaShift, type RotaLocation, type RotaUser,
+  type RotaLeave, type RotaLeaveType,
 } from '../../services/rotacloud'
-import { unixToHHMM } from '../../hooks/useRotaAttendance'
+import { unixToHHMM, unixToLocalDate } from '../../hooks/useRotaAttendance'
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import { useAppSelector } from '../../store'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
-import { useFirebaseTimesheets, fmt12, toYMD, fmtHours, weekMonday } from '../../hooks/useFirebaseTimesheets'
+import { fmt12, toYMD, fmtHours, weekMonday } from '../../hooks/useFirebaseTimesheets'
 import { useFirebaseLeave } from '../../hooks/useFirebaseLeave'
 import { QRCodeSVG } from 'qrcode.react'
 
@@ -276,7 +278,6 @@ export default function EmployeeDashboard() {
   const [leaveModal, setLeaveModal] = useState(false)
 
   const myEmployee = employees.find(e => e.email === currentUser?.email)
-  const { entries } = useFirebaseTimesheets(myEmployee?.id ?? '')
   const rcId = myEmployee?.rotacloudId ? Number(myEmployee.rotacloudId) : null
 
   // RotaCloud clock state
@@ -289,6 +290,12 @@ export default function EmployeeDashboard() {
   const [rcFetching,  setRcFetching]  = useState(false)
   const [geoStatus,   setGeoStatus]   = useState<'idle'|'checking'|'ok'|'far'|'denied'>('idle')
   const [geoDistance, setGeoDistance] = useState<number | null>(null)
+
+  // RotaCloud broader data
+  const [monthAtts,      setMonthAtts]      = useState<RotaAttendance[]>([])
+  const [upcomingShifts, setUpcomingShifts] = useState<RotaShift[]>([])
+  const [rcLeave,        setRcLeave]        = useState<RotaLeave[]>([])
+  const [rcLeaveTypes,   setRcLeaveTypes]   = useState<RotaLeaveType[]>([])
 
   const [notices, setNotices] = useState<Notice[]>([])
   const [showQr,  setShowQr]  = useState(false)
@@ -330,13 +337,39 @@ export default function EmployeeDashboard() {
     })
   }, [rcId])
 
+  // RotaCloud broader data — month attendance, upcoming shifts, leave
+  useEffect(() => {
+    if (!rcId) return
+    const now    = new Date()
+    const mStart = Math.floor(new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0).getTime() / 1000)
+    const mEnd   = Math.floor(new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime() / 1000)
+    const tStart = Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime() / 1000)
+    const fEnd   = Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 21, 23, 59, 59).getTime() / 1000)
+    Promise.allSettled([
+      fetchRotaAttendance(mStart, mEnd),
+      fetchRotaShifts(tStart, fEnd),
+      fetchRotaLeaveTypes(),
+      fetchRotaLeave(rcId),
+    ]).then(([monthR, shiftsR, ltR, leaveR]) => {
+      if (monthR.status === 'fulfilled')
+        setMonthAtts(monthR.value.filter(a => !a.deleted && a.user === rcId))
+      if (shiftsR.status === 'fulfilled')
+        setUpcomingShifts(
+          shiftsR.value
+            .filter(s => !s.deleted && s.published && !s.open && s.user === rcId)
+            .sort((a, b) => a.start_time - b.start_time)
+        )
+      if (ltR.status === 'fulfilled')   setRcLeaveTypes(ltR.value)
+      if (leaveR.status === 'fulfilled') setRcLeave(leaveR.value.filter(l => l.status !== 'cancelled'))
+    })
+  }, [rcId])
+
   const todayYMD = toYMD(new Date())
   const TARGET   = 8
 
   // RotaCloud live clock
   const isLiveClockedIn  = !!todayAtt?.in_time_clocked && !todayAtt?.out_time_clocked
-  const rcClockedInTime  = todayAtt?.in_time_clocked  ?? null  // for live timer
-  const rcClockedOutTime = todayAtt?.out_time_clocked ?? null  // for live timer
+  const rcClockedInTime  = todayAtt?.in_time_clocked ?? null  // for live timer
   // Punch bar display: actual clock → timesheet entry → scheduled shift
   const punchInDisplay  = todayAtt?.in_time_clocked ?? todayAtt?.in_time ?? todayShift?.start_time ?? null
   const punchOutDisplay = todayAtt?.out_time_clocked ?? todayAtt?.out_time ?? null
@@ -408,50 +441,68 @@ export default function EmployeeDashboard() {
     }
   }
 
+  // RotaCloud hours per date (from this month's attendance)
+  const rcHoursByDate = new Map<string, number>()
+  for (const a of monthAtts) {
+    if (a.hours > 0) {
+      const ds = unixToLocalDate(a.in_time)
+      rcHoursByDate.set(ds, (rcHoursByDate.get(ds) ?? 0) + a.hours)
+    }
+  }
+
   // This week
   const weekStart   = weekMonday(new Date())
   const weekDayStrs = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart)
-    d.setDate(d.getDate() + i)
-    return toYMD(d)
+    const d = new Date(weekStart); d.setDate(d.getDate() + i); return toYMD(d)
   })
-  const weekHours = weekDayStrs.reduce((s, date) =>
-    s + entries.filter(e => e.date === date && !e.clockedIn).reduce((x, e) => x + e.hours, 0), 0)
-
   const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+  const weekHours  = weekDayStrs.reduce((s, d) => s + (rcHoursByDate.get(d) ?? 0), 0)
   const weeklyData = weekDayStrs.map((date, i) => ({
     day:     DAY_LABELS[i],
-    hours:   Math.round(entries.filter(e => e.date === date && !e.clockedIn).reduce((x, e) => x + e.hours, 0) * 10) / 10,
+    hours:   Math.round((rcHoursByDate.get(date) ?? 0) * 10) / 10,
     isToday: date === todayYMD,
   }))
 
-  // Leave data
-  const myLeave      = allLeave.filter(r => r.employeeId === myEmployee?.id)
-  const approvedLeave = myLeave.filter(r => r.status === 'approved')
-  const pendingLeave  = myLeave.filter(r => r.status === 'pending')
+  // This month attendance % from RotaCloud
+  const dayOfMonth     = new Date().getDate()
+  const workdaysPassed = Array.from({ length: dayOfMonth }, (_, i) => {
+    const d = new Date(new Date().getFullYear(), new Date().getMonth(), i + 1)
+    return d.getDay() !== 0 && d.getDay() !== 6
+  }).filter(Boolean).length
+  const monthWorkedDays = new Set(monthAtts.filter(a => a.hours > 0).map(a => unixToLocalDate(a.in_time))).size
+  const attendancePct   = workdaysPassed > 0 ? Math.round((monthWorkedDays / workdaysPassed) * 100) : 100
 
+  // Firebase leave (portal requests only)
+  const myLeave       = allLeave.filter(r => r.employeeId === myEmployee?.id)
+  const approvedLeave = myLeave.filter(r => r.status === 'approved')
+
+  // Calendar leave dates — combine Firebase + RotaCloud approved leave
   const leaveDates = new Set<string>()
   approvedLeave.forEach(lr => {
     const s = new Date(lr.startDate), end = new Date(lr.endDate)
     for (const d = new Date(s); d <= end; d.setDate(d.getDate() + 1))
       leaveDates.add(toYMD(new Date(d)))
   })
+  rcLeave.filter(l => l.status === 'approved').forEach(l => {
+    const s = new Date(l.start_date), end = new Date(l.end_date)
+    for (const d = new Date(s); d <= end; d.setDate(d.getDate() + 1))
+      leaveDates.add(toYMD(new Date(d)))
+  })
 
-  const annualUsed = myLeave.filter(r => r.type === 'annual' && r.status === 'approved').reduce((s, r) => s + r.days, 0)
-  const sickUsed   = myLeave.filter(r => r.type === 'sick'   && r.status === 'approved').reduce((s, r) => s + r.days, 0)
-  const toilUsed   = myLeave.filter(r => r.type === 'toil'   && r.status === 'approved').reduce((s, r) => s + r.days, 0)
-  const LEAVE_TOTAL = 10
-  const totalUsed   = myLeave.filter(r => r.status === 'approved').reduce((s, r) => s + r.days, 0)
+  // RotaCloud leave balance
+  const rcLeaveByType = new Map<number, number>()
+  rcLeave.filter(l => l.status === 'approved').forEach(l =>
+    rcLeaveByType.set(l.leave_type, (rcLeaveByType.get(l.leave_type) ?? 0) + l.days)
+  )
+  const annualType      = rcLeaveTypes.find(lt => /annual/i.test(lt.name))
+  const annualAllowance = annualType?.allowance ?? 28
+  const annualUsedRC    = annualType ? (rcLeaveByType.get(annualType.id) ?? 0) : 0
+  const annualRemaining = Math.max(0, annualAllowance - annualUsedRC)
+  const hasRcLeave      = rcLeaveTypes.length > 0
 
-  // This month attendance %
-  const thisMonthStr = todayYMD.slice(0, 7)
-  const workedDays   = new Set(entries.filter(e => e.date.startsWith(thisMonthStr) && !e.clockedIn).map(e => e.date)).size
-  const dayOfMonth   = new Date().getDate()
-  const workdaysPassed = Array.from({ length: dayOfMonth }, (_, i) => {
-    const d = new Date(new Date().getFullYear(), new Date().getMonth(), i + 1)
-    return d.getDay() !== 0 && d.getDay() !== 6
-  }).filter(Boolean).length
-  const attendancePct = workdaysPassed > 0 ? Math.round((workedDays / workdaysPassed) * 100) : 100
+  // "Leave Remaining" hero chip — prefer RotaCloud annual, fall back to Firebase
+  const leaveRemainingDisp = hasRcLeave ? annualRemaining
+    : Math.max(0, 10 - myLeave.filter(r => r.status === 'approved').reduce((s, r) => s + r.days, 0))
 
   // Greeting
   const h         = liveTime.getHours()
@@ -516,10 +567,10 @@ export default function EmployeeDashboard() {
           {/* 4 stat chips */}
           <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { l: "Today's Hours",   v: rcLiveStr,                         c: '#5DADE2'  },
-              { l: 'Leave Remaining', v: `${Math.max(0, LEAVE_TOTAL - totalUsed)}d`, c: '#6EE7B7' },
-              { l: 'Week Hours',      v: fmtHours(weekHours),               c: '#C4B5FD'  },
-              { l: 'This Month',      v: `${attendancePct}%`,               c: '#FCD34D'  },
+              { l: "Today's Hours",   v: rcLiveStr,                    c: '#5DADE2'  },
+              { l: 'Leave Remaining', v: `${leaveRemainingDisp}d`,    c: '#6EE7B7' },
+              { l: 'Week Hours',      v: fmtHours(weekHours),          c: '#C4B5FD'  },
+              { l: 'This Month',      v: `${attendancePct}%`,          c: '#FCD34D'  },
             ].map(s => (
               <div key={s.l} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3">
                 <div className="text-[10px] opacity-50 uppercase tracking-wide font-medium mb-1">{s.l}</div>
@@ -684,7 +735,7 @@ export default function EmployeeDashboard() {
           <div className="grid grid-cols-2 gap-2">
             {[
               {
-                label: 'Apply Leave', sub: `${Math.max(0, LEAVE_TOTAL - totalUsed)}d remaining`,
+                label: 'Apply Leave', sub: `${leaveRemainingDisp}d remaining`,
                 icon: CalendarDays, action: () => setLeaveModal(true),
                 bg: 'bg-primary/5 hover:bg-primary/10 border-primary/10', icon_bg: 'bg-primary/15', icon_color: 'text-primary',
               },
@@ -751,17 +802,66 @@ export default function EmployeeDashboard() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-sm font-bold text-secondary">Leave Balance</p>
-              <p className="text-xs text-gray-400">Total: {LEAVE_TOTAL} days</p>
+              <p className="text-xs text-gray-400">
+                {hasRcLeave ? `Annual: ${annualAllowance}d allowance` : 'Portal leave summary'}
+              </p>
             </div>
             <button onClick={() => navigate('/my-leave')} className="text-xs text-primary hover:underline">Details →</button>
           </div>
           <div className="flex flex-col items-center gap-3 flex-1">
-            <MiniDonut used={totalUsed} total={LEAVE_TOTAL} color="#2E86C1" label="Total Leave" />
-            <div className="flex gap-5 text-center">
-              <div><p className="text-xs font-bold text-secondary">{sickUsed}</p><p className="text-[10px] text-gray-400">Sick</p></div>
-              <div><p className="text-xs font-bold text-secondary">{annualUsed}</p><p className="text-[10px] text-gray-400">Annual</p></div>
-              <div><p className="text-xs font-bold text-secondary">{toilUsed}</p><p className="text-[10px] text-gray-400">TOIL</p></div>
-            </div>
+            {hasRcLeave ? (
+              <>
+                <MiniDonut used={annualUsedRC} total={annualAllowance} color="#2E86C1" label="Annual Leave" />
+                <div className="w-full space-y-2">
+                  {rcLeaveTypes.slice(0, 4).map(lt => {
+                    const used = rcLeaveByType.get(lt.id) ?? 0
+                    const total = lt.allowance ?? 0
+                    return (
+                      <div key={lt.id} className="flex items-center justify-between">
+                        <span className="text-[11px] text-gray-500 truncate max-w-[100px]">{lt.name}</span>
+                        <div className="flex items-center gap-2">
+                          {total > 0 && (
+                            <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-primary rounded-full" style={{ width: `${Math.min(100, (used / total) * 100)}%` }} />
+                            </div>
+                          )}
+                          <span className="text-[11px] font-bold text-secondary tabular-nums">
+                            {used}{total > 0 ? `/${total}` : 'd'}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            ) : (
+              <>
+                <MiniDonut
+                  used={myLeave.filter(r => r.status === 'approved').reduce((s,r) => s + r.days, 0)}
+                  total={10} color="#2E86C1" label="Total Leave"
+                />
+                <div className="flex gap-5 text-center">
+                  <div>
+                    <p className="text-xs font-bold text-secondary">
+                      {myLeave.filter(r => r.type === 'sick' && r.status === 'approved').reduce((s,r) => s+r.days, 0)}
+                    </p>
+                    <p className="text-[10px] text-gray-400">Sick</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-secondary">
+                      {myLeave.filter(r => r.type === 'annual' && r.status === 'approved').reduce((s,r) => s+r.days, 0)}
+                    </p>
+                    <p className="text-[10px] text-gray-400">Annual</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-secondary">
+                      {myLeave.filter(r => r.type === 'toil' && r.status === 'approved').reduce((s,r) => s+r.days, 0)}
+                    </p>
+                    <p className="text-[10px] text-gray-400">TOIL</p>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
           <button onClick={() => setLeaveModal(true)}
             className="w-full mt-4 py-2.5 bg-primary hover:bg-primary/90 text-white text-sm font-bold rounded-xl transition">
@@ -778,7 +878,7 @@ export default function EmployeeDashboard() {
             <div>
               <p className="text-sm font-bold text-secondary">This Week's Hours</p>
               <p className="text-xs text-gray-400">
-                {weekDayStrs[0]} → {weekDayStrs[6]} · <strong>{fmtHours(weekHours)}</strong> total
+                {weekDayStrs[0]} → {weekDayStrs[6]} · <strong>{fmtHours(weekHours)}</strong> · via RotaCloud
               </p>
             </div>
             <button onClick={() => navigate('/my-time')} className="text-xs text-primary hover:underline">My Shifts →</button>
@@ -816,12 +916,39 @@ export default function EmployeeDashboard() {
             <button onClick={() => navigate('/my-leave')} className="text-xs text-primary hover:underline">My Leave →</button>
           </div>
           <MiniCalendar leaveDates={leaveDates} />
+
+          {/* Upcoming shifts from RotaCloud */}
+          {upcomingShifts.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-gray-50">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Upcoming Shifts</p>
+              <div className="space-y-1.5">
+                {upcomingShifts.slice(0, 3).map(s => {
+                  const shiftHrs = ((s.end_time - s.start_time) / 3600 - s.minutes_break / 60)
+                  const locName  = rcLocations.find(l => l.id === s.location)?.name ?? '—'
+                  const dateStr  = new Date(s.start_time * 1000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+                  const inStr    = fmt12(unixToHHMM(s.start_time) ?? '')
+                  const outStr   = fmt12(unixToHHMM(s.end_time) ?? '')
+                  return (
+                    <div key={s.id} className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold text-secondary">{dateStr}</p>
+                        <p className="text-[10px] text-gray-400 truncate">{inStr}–{outStr} · {locName}</p>
+                      </div>
+                      <span className="text-[11px] font-bold text-primary tabular-nums shrink-0">{shiftHrs.toFixed(1)}h</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Upcoming approved leave */}
           {approvedLeave.length > 0 && (
             <div className="mt-3 pt-3 border-t border-gray-50">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Upcoming Leave</p>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Upcoming Leave</p>
               {approvedLeave.slice(0, 2).map(lr => (
-                <div key={lr.id} className="flex items-center justify-between py-1">
-                  <span className="text-xs text-secondary capitalize">{lr.type.replace('_',' ')}</span>
+                <div key={lr.id} className="flex items-center justify-between py-0.5">
+                  <span className="text-[11px] text-secondary capitalize">{lr.type.replace('_',' ')}</span>
                   <span className="text-[10px] text-gray-400">{lr.startDate} · {lr.days}d</span>
                 </div>
               ))}
