@@ -20,11 +20,21 @@ interface RotaEmployee {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────
-const DEFAULT_SHIFTS: Shift[] = []
+const DEFAULT_SHIFTS: Shift[] = [
+  { id: 's-morning',   name: 'Morning',   startTime: '08:00', endTime: '16:00', project: 'CCE', days: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], color: '#F59E0B' },
+  { id: 's-afternoon', name: 'Afternoon', startTime: '14:00', endTime: '22:00', project: 'CCE', days: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], color: '#2E86C1' },
+  { id: 's-night',     name: 'Night',     startTime: '22:00', endTime: '06:00', project: 'CCE', days: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], color: '#8B5CF6' },
+]
 
 const DEFAULT_EMPLOYEES: RotaEmployee[] = []
 
 const SAMPLE_ASSIGNMENTS: ShiftAssignment[] = []
+
+const SHIFT_PANELS = [
+  { name: 'Morning',   startTime: '08:00', endTime: '16:00', color: '#F59E0B', bg: 'from-amber-400  to-orange-400',  light: 'bg-amber-50',   text: 'text-amber-700',  border: 'border-amber-200', Icon: Sun    },
+  { name: 'Afternoon', startTime: '14:00', endTime: '22:00', color: '#2E86C1', bg: 'from-blue-500   to-cyan-500',    light: 'bg-blue-50',    text: 'text-blue-700',   border: 'border-blue-200',  Icon: Sunset },
+  { name: 'Night',     startTime: '22:00', endTime: '06:00', color: '#8B5CF6', bg: 'from-violet-500 to-purple-600',  light: 'bg-violet-50',  text: 'text-violet-700', border: 'border-violet-200',Icon: Moon   },
+]
 
 const PROJECTS    = ['All', 'CCE', 'VGT', 'ADT', '1AB', 'A1 Ace Taxis', 'Inverness']
 const DAYS_ORDER  = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
@@ -255,6 +265,67 @@ export default function Shifts() {
             <UserPlus size={16} /> Assign
           </button>
         </div>
+      </div>
+
+      {/* ── Shift overview panels ────────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        {SHIFT_PANELS.map(panel => {
+          const staff = assignments.filter(a => {
+            const sh = shifts.find(s => s.id === a.shiftId)
+            return sh?.name === panel.name && a.isActive
+          })
+          return (
+            <div key={panel.name} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              {/* Coloured header */}
+              <div className={cn('bg-gradient-to-r px-5 py-4 flex items-center justify-between', panel.bg)}>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                    <panel.Icon size={22} className="text-white" />
+                  </div>
+                  <div>
+                    <p className="text-white font-bold text-base">{panel.name} Shift</p>
+                    <p className="text-white/80 text-xs">{panel.startTime} – {panel.endTime}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-white text-2xl font-bold">{staff.length}</p>
+                  <p className="text-white/70 text-[10px] uppercase tracking-wide">Staff</p>
+                </div>
+              </div>
+
+              {/* Staff list */}
+              <div className="p-4">
+                {staff.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-6 text-center">
+                    <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center mb-2', panel.light)}>
+                      <Users size={18} className={panel.text} />
+                    </div>
+                    <p className="text-xs text-gray-400 font-medium">No staff assigned</p>
+                    <button
+                      onClick={() => { setShowAssignForm(true); setView('roster') }}
+                      className={cn('mt-2 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors', panel.light, panel.text, panel.border)}>
+                      + Assign Staff
+                    </button>
+                  </div>
+                ) : (
+                  <ul className="space-y-2">
+                    {staff.map(a => (
+                      <li key={a.id} className="flex items-center gap-2.5">
+                        <div className={cn('w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0', panel.light, panel.text)}>
+                          {a.employeeName.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-gray-800 truncate">{a.employeeName}</p>
+                          <p className="text-[10px] text-gray-400 truncate">{a.jobTitle} · {a.project}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {/* ── View tabs + Project filter ───────────────────────────── */}
