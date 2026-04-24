@@ -469,7 +469,9 @@ export default function EmployeeDashboard() {
     const d = new Date(new Date().getFullYear(), new Date().getMonth(), i + 1)
     return d.getDay() !== 0 && d.getDay() !== 6
   }).filter(Boolean).length
-  const monthWorkedDays = new Set(monthAtts.filter(a => a.hours > 0).map(a => unixToLocalDate(a.in_time))).size
+  const monthWorkedDays = new Set(
+    monthAtts.filter(a => a.hours > 0 && unixToLocalDate(a.in_time) <= todayYMD).map(a => unixToLocalDate(a.in_time))
+  ).size
   const attendancePct   = workdaysPassed > 0 ? Math.round((monthWorkedDays / workdaysPassed) * 100) : 100
 
   // Firebase leave (portal requests only)
