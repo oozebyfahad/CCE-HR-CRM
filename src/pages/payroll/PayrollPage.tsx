@@ -139,16 +139,25 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         } else {
           let totalHrs = 0; let late = 0; let completed = 0
           for (const att of atts) {
-            if (!att.approved) continue
+            // Count all records with at least a clock-in (not just manager-approved)
+            if (!att.in_time_clocked && !att.in_time) continue
             if (att.in_time_clocked && att.out_time_clocked) completed++
             if (att.minutes_late > 0) late++
-            let hrs = att.hours
+
+            // Use RotaCloud's calculated hours when available; fall back to
+            // computing from raw clock times for non-approved records
+            let hrs = att.hours > 0
+              ? att.hours
+              : att.in_time_clocked && att.out_time_clocked
+                ? Math.max(0, (att.out_time_clocked - att.in_time_clocked) / 3600 - att.minutes_break / 60)
+                : 0
+
             if (isHourly) {
               const d     = unixToLocalDate((att.in_time_clocked ?? att.in_time) as number)
               const shift = shiftByDate.get(d)
               if (shift) {
                 const scheduled = (shift.end_time - shift.start_time) / 3600 - att.minutes_break / 60
-                hrs = Math.min(att.hours, Math.max(0, scheduled))
+                hrs = Math.min(hrs, Math.max(0, scheduled))
               }
             }
             totalHrs += hrs

@@ -674,13 +674,18 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
         if (!att.in_time_clocked || !att.out_time_clocked) continue
         completedShifts++
         if (att.minutes_late > 0) lateCount++
-        let hrs = att.hours
+
+        // Use RotaCloud's hours when set; otherwise compute from clock times
+        let hrs = att.hours > 0
+          ? att.hours
+          : Math.max(0, (att.out_time_clocked - att.in_time_clocked) / 3600 - att.minutes_break / 60)
+
         if (isHourly) {
           const d = unixToLocalDate(att.in_time_clocked)
           const shift = shiftByDate.get(d)
           if (shift) {
             const scheduledHrs = (shift.end_time - shift.start_time) / 3600 - att.minutes_break / 60
-            hrs = Math.min(att.hours, Math.max(0, scheduledHrs))
+            hrs = Math.min(hrs, Math.max(0, scheduledHrs))
           }
         }
         approvedHours += hrs
