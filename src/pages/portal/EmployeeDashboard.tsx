@@ -297,6 +297,7 @@ export default function EmployeeDashboard() {
   const [rcLeave,        setRcLeave]        = useState<RotaLeave[]>([])
   const [rcLeaveTypes,   setRcLeaveTypes]   = useState<RotaLeaveType[]>([])
 
+  const [rcRefreshTick, setRcRefreshTick] = useState(0)
   const [notices, setNotices] = useState<Notice[]>([])
   const [showQr,  setShowQr]  = useState(false)
 
@@ -317,6 +318,7 @@ export default function EmployeeDashboard() {
   // RotaCloud today's data
   useEffect(() => {
     if (!rcId) return
+    let cancelled = false
     setRcFetching(true)
     const now   = new Date()
     const start = Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime() / 1000)
@@ -327,6 +329,7 @@ export default function EmployeeDashboard() {
       fetchRotaLocations(),
       fetchRotaUser(rcId),
     ]).then(([attsR, shiftsR, locsR, userR]) => {
+      if (cancelled) return
       if (attsR.status === 'fulfilled')
         setTodayAtt(attsR.value.find(a => !a.deleted && a.user === rcId) ?? null)
       if (shiftsR.status === 'fulfilled')
@@ -335,11 +338,13 @@ export default function EmployeeDashboard() {
       if (userR.status === 'fulfilled') setRcUser(userR.value)
       setRcFetching(false)
     })
-  }, [rcId])
+    return () => { cancelled = true; setRcFetching(false) }
+  }, [rcId, rcRefreshTick])
 
   // RotaCloud broader data — month attendance, upcoming shifts, leave
   useEffect(() => {
     if (!rcId) return
+    let cancelled = false
     const now    = new Date()
     const mStart = Math.floor(new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0).getTime() / 1000)
     const mEnd   = Math.floor(new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime() / 1000)
@@ -351,6 +356,7 @@ export default function EmployeeDashboard() {
       fetchRotaLeaveTypes(),
       fetchRotaLeave(rcId),
     ]).then(([monthR, shiftsR, ltR, leaveR]) => {
+      if (cancelled) return
       if (monthR.status === 'fulfilled')
         setMonthAtts(monthR.value.filter(a => !a.deleted && a.user === rcId))
       if (shiftsR.status === 'fulfilled')
@@ -359,10 +365,11 @@ export default function EmployeeDashboard() {
             .filter(s => !s.deleted && s.published && !s.open && s.user === rcId)
             .sort((a, b) => a.start_time - b.start_time)
         )
-      if (ltR.status === 'fulfilled')   setRcLeaveTypes(ltR.value)
+      if (ltR.status === 'fulfilled')    setRcLeaveTypes(ltR.value)
       if (leaveR.status === 'fulfilled') setRcLeave(leaveR.value.filter(l => l.status !== 'cancelled'))
     })
-  }, [rcId])
+    return () => { cancelled = true }
+  }, [rcId, rcRefreshTick])
 
   const todayYMD = toYMD(new Date())
   const TARGET   = 8
@@ -640,9 +647,13 @@ export default function EmployeeDashboard() {
         <div className="lg:col-span-3 card p-5 flex flex-col items-center gap-3">
           <div className="flex items-center justify-between w-full">
             <p className="text-sm font-bold text-secondary">Time Clock</p>
-            {rcFetching
-              ? <RefreshCw size={12} className="text-gray-400 animate-spin" />
-              : <span className="text-[10px] text-gray-400 tabular-nums">{todayYMD}</span>}
+            <button
+              onClick={() => setRcRefreshTick(t => t + 1)}
+              disabled={rcFetching}
+              className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 disabled:opacity-40 transition-colors"
+              title="Refresh RotaCloud data">
+              <RefreshCw size={12} className={rcFetching ? 'animate-spin' : ''} />
+            </button>
           </div>
 
           {/* Ring */}
