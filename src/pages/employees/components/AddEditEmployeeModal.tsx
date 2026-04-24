@@ -302,7 +302,16 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
 
                 <Field label="Pay Type">
                   <select className={inp} value={form.payType ?? 'fixed_monthly'}
-                    onChange={e => set('payType', e.target.value)}>
+                    onChange={e => {
+                      const t = e.target.value as 'hourly' | 'fixed_monthly'
+                      setForm(prev => ({
+                        ...prev,
+                        payType: t,
+                        ...(t === 'hourly'
+                          ? { salary: undefined, overtimeRate: undefined }
+                          : { hourlyRate: undefined }),
+                      }))
+                    }}>
                     <option value="fixed_monthly">Fixed Monthly Salary</option>
                     <option value="hourly">Hourly Rate</option>
                   </select>

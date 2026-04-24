@@ -411,7 +411,7 @@ export default function EmployeeProfile() {
                   rows={[[fmtShort(emp.startDate), EMPLOYMENT_TYPE_LABELS[emp.employmentType] ?? emp.employmentType]]}
                 />
               </SectionCard>
-              {emp.salary && (
+              {emp.payType !== 'hourly' && emp.salary && (
                 <SectionCard title="Compensation">
                   <DataTable
                     cols={['Effective Date','Monthly Salary','Type']}
@@ -580,7 +580,7 @@ export default function EmployeeProfile() {
           {/* ── Pay Info ── */}
           {tab === 'Pay Info' && (
             <>
-              {emp.salary && (
+              {emp.payType !== 'hourly' && emp.salary && (
                 <div className="card p-6">
                   <div className="mb-1">
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Monthly Salary</p>
@@ -592,10 +592,13 @@ export default function EmployeeProfile() {
               <SectionCard title="Pay Information">
                 <InfoTable rows={[
                   ['Pay Type',               emp.payType ? (PAY_TYPE_LABELS[emp.payType] ?? emp.payType) : undefined],
-                  ['Monthly Salary (PKR)',    emp.salary != null ? `PKR ${emp.salary.toLocaleString()}` : undefined],
-                  ['Monthly Hours Threshold', emp.monthlyHours != null ? `${emp.monthlyHours} hrs` : undefined],
-                  ['Overtime Rate (PKR / hr)',emp.overtimeRate != null ? `PKR ${emp.overtimeRate.toLocaleString()}` : undefined],
-                  ['Hourly Rate (PKR / hr)',  emp.hourlyRate != null ? `PKR ${emp.hourlyRate.toLocaleString()}` : undefined],
+                  ...(emp.payType !== 'hourly' ? [
+                    ['Monthly Salary (PKR)',    emp.salary != null ? `PKR ${emp.salary.toLocaleString()}` : undefined] as [string, string | undefined],
+                    ['Monthly Hours Threshold', emp.monthlyHours != null ? `${emp.monthlyHours} hrs` : undefined] as [string, string | undefined],
+                    ['Overtime Rate (PKR / hr)',emp.overtimeRate != null ? `PKR ${emp.overtimeRate.toLocaleString()}` : undefined] as [string, string | undefined],
+                  ] : [
+                    ['Hourly Rate (PKR / hr)',  emp.hourlyRate != null ? `PKR ${emp.hourlyRate.toLocaleString()}` : undefined] as [string, string | undefined],
+                  ]),
                 ]} />
               </SectionCard>
               <SectionCard title="Banking Details">
