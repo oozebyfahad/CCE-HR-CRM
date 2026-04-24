@@ -22,6 +22,7 @@ async function rotaCall<T>(
   path: string,
   params?: Record<string, string | number>,
   paginate = false,
+  emptyOn404 = false,
 ): Promise<T> {
   const res = await fetch(PROXY, {
     method: 'POST',
@@ -29,7 +30,10 @@ async function rotaCall<T>(
     body: JSON.stringify({ path, params, paginate }),
   })
   const json = await res.json()
-  if (!res.ok) throw new Error(json.error ?? `RotaCloud error ${res.status}`)
+  if (!res.ok) {
+    if (emptyOn404 && res.status === 404) return (Array.isArray([]) ? [] : null) as unknown as T
+    throw new Error(json.error ?? `RotaCloud error ${res.status}`)
+  }
   return json.data as T
 }
 
@@ -184,10 +188,10 @@ export interface RotaLeave {
 }
 
 export const fetchRotaLeaveTypes = () =>
-  rotaCall<RotaLeaveType[]>('leave-types')
+  rotaCall<RotaLeaveType[]>('leave-types', undefined, false, true)
 
 export const fetchRotaLeave = (userId: number) =>
-  rotaCall<RotaLeave[]>('leave', { user_id: userId }, true)
+  rotaCall<RotaLeave[]>('leave', { user_id: userId }, true, true)
 
 /** Sums approved hours per RotaCloud user ID from a set of attendance records */
 export function sumHoursByUser(records: RotaAttendance[]): Record<number, number> {

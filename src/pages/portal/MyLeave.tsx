@@ -165,11 +165,11 @@ export default function MyLeave() {
     setError('')
     Promise.allSettled([fetchRotaLeaveTypes(), fetchRotaLeave(rcId)])
       .then(([typesR, leaveR]) => {
-        if (typesR.status === 'fulfilled') setRcLeaveTypes(typesR.value)
+        if (typesR.status === 'fulfilled') setRcLeaveTypes(typesR.value ?? [])
         if (leaveR.status === 'fulfilled')
-          setRcLeave(leaveR.value.filter(l => l.status !== 'cancelled'))
-        else if (typesR.status === 'rejected' && leaveR.status === 'rejected')
-          setError('Could not load RotaCloud leave data.')
+          setRcLeave((leaveR.value ?? []).filter(l => l.status !== 'cancelled'))
+        if (typesR.status === 'rejected' && leaveR.status === 'rejected')
+          setError('Leave data is not available in RotaCloud for this account.')
         setLoading(false)
       })
   }, [rcId])
@@ -236,7 +236,11 @@ export default function MyLeave() {
           <RefreshCw size={15} className="animate-spin" /> Loading leave data…
         </div>
       ) : error ? (
-        <div className="card p-6 text-sm text-red-500 text-center">{error}</div>
+        <div className="card p-8 text-center">
+          <CalendarDays size={28} className="text-gray-200 mx-auto mb-3" />
+          <p className="text-sm font-semibold text-gray-400">Leave data unavailable</p>
+          <p className="text-xs text-gray-400 mt-1">{error}</p>
+        </div>
       ) : (
         <>
           {/* ── Summary bar ── */}
