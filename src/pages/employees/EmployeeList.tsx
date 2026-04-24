@@ -562,6 +562,9 @@ export default function EmployeeList() {
   const [changeRoleEmp,   setChangeRoleEmp]   = useState<{ emp: FirebaseEmployee; user: FirebaseUser } | null>(null)
   const [showPortalModal, setShowPortalModal] = useState(false)
   const [resetSentFor,    setResetSentFor]    = useState<string | null>(null)
+  const [selectedIds,     setSelectedIds]     = useState<Set<string>>(new Set())
+  const [bulkDeleting,    setBulkDeleting]    = useState(false)
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false)
 
   const [importOpen,       setImportOpen]       = useState(false)
   const [rotaImportOpen,   setRotaImportOpen]   = useState(false)
@@ -638,6 +641,26 @@ export default function EmployeeList() {
     catch { notify('Failed to delete employee', 'error') }
   }
 
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true)
+    try {
+      for (const id of selectedIds) await deleteEmployee(id)
+      notify(`${selectedIds.size} employee${selectedIds.size !== 1 ? 's' : ''} deleted`)
+      setSelectedIds(new Set())
+      setShowBulkConfirm(false)
+    } catch { notify('Failed to delete some employees', 'error') }
+    finally { setBulkDeleting(false) }
+  }
+
+  const toggleSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+
+  const toggleSelectAll = () => {
+    setSelectedIds(selectedIds.size === filtered.length ? new Set() : new Set(filtered.map(e => e.id)))
+  }
+
   return (
     <div className="space-y-5">
 
@@ -708,11 +731,32 @@ export default function EmployeeList() {
         </div>
       </div>
 
+      {/* ── Bulk action bar ── */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl">
+          <span className="text-sm font-semibold text-red-700">{selectedIds.size} employee{selectedIds.size !== 1 ? 's' : ''} selected</span>
+          <button
+            onClick={() => setShowBulkConfirm(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 transition-colors ml-auto">
+            <Trash2 size={13} /> Delete Selected
+          </button>
+          <button onClick={() => setSelectedIds(new Set())} className="text-xs text-red-400 hover:text-red-600 transition-colors">
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* ── List ── */}
       <div className="card overflow-hidden">
 
         {/* Column headers */}
         <div className="px-6 py-2.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wide flex items-center border-b border-gray-100 bg-gray-50/70 sticky top-0 z-10">
+          <div className="w-6 shrink-0 mr-3">
+            <input type="checkbox"
+              checked={filtered.length > 0 && selectedIds.size === filtered.length}
+              onChange={toggleSelectAll}
+              className="w-3.5 h-3.5 rounded accent-primary cursor-pointer" />
+          </div>
           <div className="flex-grow">Employee</div>
           <div className="w-24 shrink-0 hidden sm:block">ID</div>
           <div className="w-32 shrink-0 hidden md:block">Department</div>
@@ -763,7 +807,15 @@ export default function EmployeeList() {
         {!loading && filtered.map(emp => (
           <div key={emp.id}
             onClick={() => navigate(`/employees/${emp.id}`)}
-            className="w-full flex items-center px-6 py-3.5 border-b border-gray-50 last:border-0 hover:bg-primary-50/30 transition-colors cursor-pointer text-sm">
+            className={cn('w-full flex items-center px-6 py-3.5 border-b border-gray-50 last:border-0 hover:bg-primary-50/30 transition-colors cursor-pointer text-sm', selectedIds.has(emp.id) && 'bg-red-50/40')}>
+
+            {/* Checkbox */}
+            <div className="w-6 shrink-0 mr-3" onClick={e => toggleSelect(emp.id, e)}>
+              <input type="checkbox"
+                checked={selectedIds.has(emp.id)}
+                onChange={() => {}}
+                className="w-3.5 h-3.5 rounded accent-primary cursor-pointer" />
+            </div>
 
             {/* Avatar + name + email */}
             <div className="flex-grow flex items-center gap-3 overflow-hidden min-w-0">
@@ -879,6 +931,26 @@ export default function EmployeeList() {
           onConfirm={handleDelete}
           onClose={() => setDeleteEmp(null)}
         />
+      )}
+      {showBulkConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-96 p-6">
+            <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center mb-4">
+              <Trash2 size={22} className="text-red-600" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-1">Delete {selectedIds.size} Employee{selectedIds.size !== 1 ? 's' : ''}?</h3>
+            <p className="text-sm text-gray-500 mb-6">This will permanently delete {selectedIds.size} employee record{selectedIds.size !== 1 ? 's' : ''}. This action cannot be undone.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowBulkConfirm(false)} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleBulkDelete} disabled={bulkDeleting}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+                {bulkDeleting ? 'Deleting…' : `Delete ${selectedIds.size}`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {changeRoleEmp && (
