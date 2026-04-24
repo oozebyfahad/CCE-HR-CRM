@@ -314,18 +314,20 @@ export default function EmployeeDashboard() {
     const now   = new Date()
     const start = Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime() / 1000)
     const end   = Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).getTime() / 1000)
-    Promise.all([
+    Promise.allSettled([
       fetchRotaAttendance(start, end),
       fetchRotaShifts(start, end),
       fetchRotaLocations(),
       fetchRotaUser(rcId),
-    ]).then(([atts, shifts, locs, user]) => {
-      setTodayAtt(atts.find(a => !a.deleted && a.user === rcId) ?? null)
-      setTodayShift(shifts.find(s => !s.deleted && s.published && !s.open && s.user === rcId) ?? null)
-      setRcLocations(locs)
-      setRcUser(user)
+    ]).then(([attsR, shiftsR, locsR, userR]) => {
+      if (attsR.status === 'fulfilled')
+        setTodayAtt(attsR.value.find(a => !a.deleted && a.user === rcId) ?? null)
+      if (shiftsR.status === 'fulfilled')
+        setTodayShift(shiftsR.value.find(s => !s.deleted && s.published && !s.open && s.user === rcId) ?? null)
+      if (locsR.status === 'fulfilled') setRcLocations(locsR.value)
+      if (userR.status === 'fulfilled') setRcUser(userR.value)
       setRcFetching(false)
-    }).catch(() => setRcFetching(false))
+    })
   }, [rcId])
 
   const todayYMD = toYMD(new Date())
