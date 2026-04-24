@@ -333,8 +333,11 @@ export default function EmployeeDashboard() {
 
   // RotaCloud live clock
   const isLiveClockedIn  = !!todayAtt?.in_time_clocked && !todayAtt?.out_time_clocked
-  const rcClockedInTime  = todayAtt?.in_time_clocked  ?? null
-  const rcClockedOutTime = todayAtt?.out_time_clocked ?? null
+  const rcClockedInTime  = todayAtt?.in_time_clocked  ?? null  // for live timer
+  const rcClockedOutTime = todayAtt?.out_time_clocked ?? null  // for live timer
+  // Punch bar display: actual clock → timesheet entry → scheduled shift
+  const punchInDisplay  = todayAtt?.in_time_clocked ?? todayAtt?.in_time ?? todayShift?.start_time ?? null
+  const punchOutDisplay = todayAtt?.out_time_clocked ?? todayAtt?.out_time ?? null
   const rcElapsed = isLiveClockedIn && rcClockedInTime
     ? (liveTime.getTime() / 1000 - rcClockedInTime) / 3600
     : (todayAtt?.hours ?? 0)
@@ -601,14 +604,14 @@ export default function EmployeeDashboard() {
             <div className="text-center">
               <p className="text-[9px] text-gray-400 uppercase tracking-widest font-medium">In</p>
               <p className={`text-sm font-bold text-white mt-0.5 ${num}`}>
-                {rcClockedInTime ? fmt12(unixToHHMM(rcClockedInTime) ?? '') : '--:--'}
+                {punchInDisplay ? fmt12(unixToHHMM(punchInDisplay) ?? '') : '--:--'}
               </p>
             </div>
             <div className="w-px h-8 bg-white/10" />
             <div className="text-center">
               <p className="text-[9px] text-gray-400 uppercase tracking-widest font-medium">Out</p>
               <p className={`text-sm font-bold text-white mt-0.5 ${num}`}>
-                {rcClockedOutTime ? fmt12(unixToHHMM(rcClockedOutTime) ?? '') : '--:--'}
+                {punchOutDisplay ? fmt12(unixToHHMM(punchOutDisplay) ?? '') : '--:--'}
               </p>
             </div>
           </div>
