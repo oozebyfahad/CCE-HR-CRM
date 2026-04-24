@@ -53,6 +53,8 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [punctualityMap, setPunctualityMap] = useState<Record<string, string>>({})
   // Tracks RotaCloud-derived punctuality eligibility: empId → { lateCount, completedShifts }
   const [lateMap, setLateMap] = useState<Record<string, { lateCount: number; completedShifts: number }>>({})
+  // Scheduled hours from RotaCloud shifts (sum of all shift durations for the month)
+  const [scheduledMap, setScheduledMap] = useState<Record<string, number>>({})
 
   // Global punctuality bonus rate for auto-fill
   const [globalPuncRate, setGlobalPuncRate] = useState('')
@@ -90,14 +92,30 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         byUser[s.user].shifts.push(s)
       }
 
-      const newHours: Record<string, string>       = { ...hoursMap }
-      const newPunc:  Record<string, string>       = { ...punctualityMap }
-      const newLate:  typeof lateMap               = {}
+      const newHours:     Record<string, string>  = { ...hoursMap }
+      const newPunc:      Record<string, string>  = { ...punctualityMap }
+      const newLate:      typeof lateMap          = {}
+      const newScheduled: Record<string, number>  = {}
       let matched = 0
 
       for (const [rotaIdStr, { atts, shifts }] of Object.entries(byUser)) {
         const emp = rotaToEmp[Number(rotaIdStr)]
         if (!emp) continue
+
+        // Sum all published shift durations → dynamic scheduled hours for this month
+        let scheduledHrs = 0
+        const shiftByDate = new Map<string, RotaShift>()
+        for (const s of shifts) {
+          const duration = Math.max(0, (s.end_time - s.start_time) / 3600 - (s.minutes_break ?? 0) / 60)
+          scheduledHrs += duration
+          const d = unixToLocalDate(s.start_time)
+          if (!shiftByDate.has(d)) shiftByDate.set(d, s)
+        }
+        const scheduledRounded = Math.round(scheduledHrs * 100) / 100
+        newScheduled[emp.id] = scheduledRounded
+
+        // Use scheduled hours as the threshold (overrides static emp.monthlyHours)
+        const threshold = scheduledRounded > 0 ? scheduledRounded : (emp.monthlyHours ?? null)
 
         // Check Firestore for admin-approved shift summary first
         let approvedHours:    number | null = null
@@ -113,21 +131,12 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           }
         } catch { /* no pre-approval — fall through */ }
 
-        const isHourly  = emp.payType === 'hourly'
-        const threshold = emp.monthlyHours   // undefined = no cap for hourly; default 160 for fixed
+        const isHourly = emp.payType === 'hourly'
 
         if (approvedHours !== null) {
-          let capped = approvedHours
-          if (threshold != null) capped = Math.min(capped, threshold)
+          const capped = threshold != null ? Math.min(approvedHours, threshold) : approvedHours
           newHours[emp.id] = String(Math.round(capped * 100) / 100)
         } else {
-          // Calculate from raw RotaCloud data
-          const shiftByDate = new Map<string, RotaShift>()
-          for (const s of shifts) {
-            const d = unixToLocalDate(s.start_time)
-            if (!shiftByDate.has(d)) shiftByDate.set(d, s)
-          }
-
           let totalHrs = 0; let late = 0; let completed = 0
           for (const att of atts) {
             if (!att.approved) continue
@@ -135,8 +144,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
             if (att.minutes_late > 0) late++
             let hrs = att.hours
             if (isHourly) {
-              // Hourly: cap each shift to scheduled duration (no early/late padding)
-              const d    = unixToLocalDate((att.in_time_clocked ?? att.in_time) as number)
+              const d     = unixToLocalDate((att.in_time_clocked ?? att.in_time) as number)
               const shift = shiftByDate.get(d)
               if (shift) {
                 const scheduled = (shift.end_time - shift.start_time) / 3600 - att.minutes_break / 60
@@ -145,14 +153,12 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
             }
             totalHrs += hrs
           }
-          // Cap total at monthly threshold if set (applies to both hourly and fixed)
           if (threshold != null) totalHrs = Math.min(totalHrs, threshold)
           newHours[emp.id] = String(Math.round(totalHrs * 100) / 100)
           lateCount       = late
           completedShifts = completed
         }
 
-        // Track eligibility and auto-zero punctuality if not eligible
         if (lateCount !== null && completedShifts !== null) {
           newLate[emp.id] = { lateCount, completedShifts }
           const qualifies = lateCount <= 3 && completedShifts >= 15
@@ -164,6 +170,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
       setHoursMap(newHours)
       setPunctualityMap(newPunc)
       setLateMap(newLate)
+      setScheduledMap(newScheduled)
       setRotaStatus({ matched, total: Object.keys(byUser).length })
     } catch (e) {
       setRotaError(e instanceof Error ? e.message : 'Import failed')
@@ -333,7 +340,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                         <tr>
                           <th className={thCls}>Employee</th>
                           <th className={thCls}>Rate (PKR/hr)</th>
-                          <th className={thCls}>Hours Worked</th>
+                          <th className={thCls}>Hours Worked / Scheduled</th>
                           <th className={thCls}>Punctuality Bonus (PKR)</th>
                           <th className={thCls}>Eligibility</th>
                           <th className={thCls}>Est. Basic Pay</th>
@@ -345,7 +352,8 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                           const punc = parseFloat(punctualityMap[emp.id] ?? '') || 0
                           const est  = Math.round((emp.hourlyRate ?? 0) * hrs)
                           const eli  = lateMap[emp.id]
-                          const qualifies = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : null
+                          const qualifies   = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : null
+                          const scheduled   = scheduledMap[emp.id]
                           return (
                             <tr key={emp.id} className="hover:bg-gray-50/50">
                               <td className={tdCls}>
@@ -356,10 +364,15 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                                 {emp.hourlyRate ? `PKR ${emp.hourlyRate.toLocaleString()}` : <span className="text-red-400 text-xs">Not set</span>}
                               </td>
                               <td className={tdCls}>
-                                <input type="number" min={0} step={0.5} placeholder="0"
-                                  value={hoursMap[emp.id] ?? ''}
-                                  onChange={e => setHoursMap(m => ({ ...m, [emp.id]: e.target.value }))}
-                                  className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                                <div className="flex items-center gap-1.5">
+                                  <input type="number" min={0} step={0.5} placeholder="0"
+                                    value={hoursMap[emp.id] ?? ''}
+                                    onChange={e => setHoursMap(m => ({ ...m, [emp.id]: e.target.value }))}
+                                    className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                                  {scheduled != null && (
+                                    <span className="text-[10px] text-gray-400 whitespace-nowrap">/ {scheduled}h</span>
+                                  )}
+                                </div>
                               </td>
                               <td className={tdCls}>
                                 <input type="number" min={0} step={100} placeholder="0"
@@ -420,12 +433,13 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {fixed.map(emp => {
-                          const hrs       = parseFloat(hoursMap[emp.id] ?? '') || 0
-                          const threshold = emp.monthlyHours ?? 160
-                          const otHrs     = Math.max(0, hrs - threshold)
-                          const otPay     = Math.round(otHrs * (emp.overtimeRate ?? 0))
-                          const eli       = lateMap[emp.id]
-                          const qualifies = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : null
+                          const hrs         = parseFloat(hoursMap[emp.id] ?? '') || 0
+                          const scheduled   = scheduledMap[emp.id]
+                          const threshold   = scheduled ?? emp.monthlyHours ?? 160
+                          const otHrs       = Math.max(0, hrs - threshold)
+                          const otPay       = Math.round(otHrs * (emp.overtimeRate ?? 0))
+                          const eli         = lateMap[emp.id]
+                          const qualifies   = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : null
                           return (
                             <tr key={emp.id} className="hover:bg-gray-50/50">
                               <td className={tdCls}>
@@ -441,7 +455,9 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                                     value={hoursMap[emp.id] ?? ''}
                                     onChange={e => setHoursMap(m => ({ ...m, [emp.id]: e.target.value }))}
                                     className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                                  <span className="text-xs text-gray-400">/ {threshold}</span>
+                                  <span className="text-xs text-gray-400">
+                                    / {threshold}h{scheduled != null ? <span className="text-blue-400 ml-0.5">(rota)</span> : null}
+                                  </span>
                                 </div>
                               </td>
                               <td className={tdCls}>
