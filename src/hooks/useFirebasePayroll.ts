@@ -17,6 +17,7 @@ export interface PayrollEntry {
   department:        string
   payType:           string
   hoursWorked:       number
+  scheduledHours?:   number
   paidHolidayHours:  number
   eidDays:           number
   qualityBonus:      number
@@ -68,6 +69,7 @@ export function useFirebasePayroll() {
     eidDaysMap:           Record<string, number>,  // empId → number of Eid days
     paidHolidayHoursMap:  Record<string, number>,  // empId → holiday hours
     rateOverrideMap:      Record<string, number> = {},  // empId → override hourlyRate or salary
+    scheduledHoursMap:    Record<string, number> = {},  // empId → scheduled hours from RotaCloud
   ): Promise<string> => {
     const d     = new Date(month + '-01')
     const label = d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
@@ -106,6 +108,7 @@ export function useFirebasePayroll() {
         otherDeductions:   otherDeductMap[emp.id] ?? 0,
       })
 
+      const scheduledHours = scheduledHoursMap[emp.id]
       entries.push({
         runId: '',
         employeeId:       emp.id,
@@ -113,6 +116,7 @@ export function useFirebasePayroll() {
         department:       emp.department ?? '',
         payType:          emp.payType ?? 'fixed_monthly',
         hoursWorked:      hours,
+        ...(scheduledHours != null ? { scheduledHours } : {}),
         paidHolidayHours,
         eidDays,
         qualityBonus,

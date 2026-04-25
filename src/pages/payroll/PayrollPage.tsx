@@ -222,6 +222,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         toNumMap(punctualityMap),
         {}, {},
         toNumMap(rateMap),
+        scheduledMap,
       )
       onCreated(id)
     } catch (e: unknown) {
@@ -454,7 +455,6 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                           const threshold   = scheduled ?? emp.monthlyHours ?? 160
                           const otHrs       = Math.max(0, hrs - threshold)
                           const otPay       = Math.round(otHrs * (emp.overtimeRate ?? 0))
-                          const salaryVal   = parseFloat(rateMap[emp.id] ?? '') || (emp.salary ?? 0)
                           const eli         = lateMap[emp.id]
                           const qualifies   = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : null
                           return (
@@ -777,7 +777,7 @@ function RunDetail({ run, onBack }: { run: PayrollRun; onBack: () => void }) {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/50">
-                {['Employee','Department','Pay Type','Hours','Gross','Tax','EOBI','Deductions','Net Pay',''].map(c => (
+                {['Employee','Department','Pay Type','Hours Worked / Scheduled','Gross','Tax','EOBI','Deductions','Net Pay',''].map(c => (
                   <th key={c} className="px-4 py-2.5 text-[11px] font-bold text-gray-400 uppercase tracking-wide text-left whitespace-nowrap">{c}</th>
                 ))}
               </tr>
@@ -792,7 +792,12 @@ function RunDetail({ run, onBack }: { run: PayrollRun; onBack: () => void }) {
                   <td className="px-4 py-3 text-xs font-semibold text-secondary whitespace-nowrap">{e.employeeName}</td>
                   <td className="px-4 py-3 text-xs text-gray-500">{e.department}</td>
                   <td className="px-4 py-3 text-xs text-gray-500">{PAY_TYPE_LABELS[e.payType as keyof typeof PAY_TYPE_LABELS] ?? e.payType}</td>
-                  <td className="px-4 py-3 text-xs text-gray-500 tabular-nums">{e.hoursWorked}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500 tabular-nums whitespace-nowrap">
+                    {e.hoursWorked}
+                    {e.scheduledHours != null && (
+                      <span className="text-gray-400"> / {e.scheduledHours}h</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-xs font-semibold text-emerald-600 tabular-nums">{fmtPKR(e.result.grossPay)}</td>
                   <td className="px-4 py-3 text-xs text-red-500 tabular-nums">{e.result.withholdingTax > 0 ? fmtPKR(e.result.withholdingTax) : '—'}</td>
                   <td className="px-4 py-3 text-xs text-gray-500 tabular-nums">{e.result.eobiEmployee > 0 ? fmtPKR(e.result.eobiEmployee) : '—'}</td>
