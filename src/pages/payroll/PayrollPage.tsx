@@ -51,6 +51,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   // Employees with no status field (older records) are treated as active
   const active = employees.filter(e => !e.status || e.status === 'active')
   const [hoursMap,       setHoursMap]       = useState<Record<string, string>>({})
+  const [rateMap,        setRateMap]        = useState<Record<string, string>>({})
   const [punctualityMap, setPunctualityMap] = useState<Record<string, string>>({})
   // Tracks RotaCloud-derived punctuality eligibility: empId → { lateCount, completedShifts }
   const [lateMap, setLateMap] = useState<Record<string, { lateCount: number; completedShifts: number }>>({})
@@ -220,6 +221,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         {},
         toNumMap(punctualityMap),
         {}, {},
+        toNumMap(rateMap),
       )
       onCreated(id)
     } catch (e: unknown) {
@@ -360,7 +362,8 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                         {hourly.map(emp => {
                           const hrs  = parseFloat(hoursMap[emp.id] ?? '') || 0
                           const punc = parseFloat(punctualityMap[emp.id] ?? '') || 0
-                          const est  = Math.round((emp.hourlyRate ?? 0) * hrs)
+                          const rate = parseFloat(rateMap[emp.id] ?? '') || (emp.hourlyRate ?? 0)
+                          const est  = Math.round(rate * hrs)
                           const eli  = lateMap[emp.id]
                           const qualifies   = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : null
                           const scheduled   = scheduledMap[emp.id]
@@ -370,8 +373,11 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                                 <p className="font-medium text-gray-900">{emp.name}</p>
                                 <p className="text-xs text-gray-400">{emp.employeeId} · {emp.jobTitle}</p>
                               </td>
-                              <td className={`${tdCls} font-medium text-gray-700`}>
-                                {emp.hourlyRate ? `PKR ${emp.hourlyRate.toLocaleString()}` : <span className="text-red-400 text-xs">Not set</span>}
+                              <td className={tdCls}>
+                                <input type="number" min={0} step={10} placeholder={emp.hourlyRate ? String(emp.hourlyRate) : 'Not set'}
+                                  value={rateMap[emp.id] ?? (emp.hourlyRate != null ? String(emp.hourlyRate) : '')}
+                                  onChange={e => setRateMap(m => ({ ...m, [emp.id]: e.target.value }))}
+                                  className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20 font-medium text-gray-700" />
                               </td>
                               <td className={tdCls}>
                                 <div className="flex items-center gap-1.5">
@@ -448,6 +454,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                           const threshold   = scheduled ?? emp.monthlyHours ?? 160
                           const otHrs       = Math.max(0, hrs - threshold)
                           const otPay       = Math.round(otHrs * (emp.overtimeRate ?? 0))
+                          const salaryVal   = parseFloat(rateMap[emp.id] ?? '') || (emp.salary ?? 0)
                           const eli         = lateMap[emp.id]
                           const qualifies   = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : null
                           return (
@@ -456,8 +463,11 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                                 <p className="font-medium text-gray-900">{emp.name}</p>
                                 <p className="text-xs text-gray-400">{emp.jobTitle}</p>
                               </td>
-                              <td className={`${tdCls} font-medium text-gray-700`}>
-                                {emp.salary ? `PKR ${emp.salary.toLocaleString()}` : <span className="text-red-400 text-xs">Not set</span>}
+                              <td className={tdCls}>
+                                <input type="number" min={0} step={500} placeholder={emp.salary ? String(emp.salary) : 'Not set'}
+                                  value={rateMap[emp.id] ?? (emp.salary != null ? String(emp.salary) : '')}
+                                  onChange={e => setRateMap(m => ({ ...m, [emp.id]: e.target.value }))}
+                                  className="w-28 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20 font-medium text-gray-700" />
                               </td>
                               <td className={tdCls}>
                                 <div className="flex items-center gap-1.5">

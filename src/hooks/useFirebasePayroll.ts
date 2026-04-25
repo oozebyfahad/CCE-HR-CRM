@@ -67,6 +67,7 @@ export function useFirebasePayroll() {
     punctualityBonusMap:  Record<string, number>,  // empId → PKR
     eidDaysMap:           Record<string, number>,  // empId → number of Eid days
     paidHolidayHoursMap:  Record<string, number>,  // empId → holiday hours
+    rateOverrideMap:      Record<string, number> = {},  // empId → override hourlyRate or salary
   ): Promise<string> => {
     const d     = new Date(month + '-01')
     const label = d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
@@ -82,12 +83,14 @@ export function useFirebasePayroll() {
       const qualityBonus     = qualityBonusMap[emp.id]     ?? 0
       const punctualityBonus = punctualityBonusMap[emp.id] ?? 0
 
+      const isHourly     = emp.payType === 'hourly'
+      const rateOverride = rateOverrideMap[emp.id]
       const result = calcPayroll({
         payType:           (emp.payType as 'hourly' | 'fixed_monthly') ?? 'fixed_monthly',
-        monthlySalary:     emp.salary,
+        monthlySalary:     isHourly ? emp.salary : (rateOverride ?? emp.salary),
         monthlyHours:      emp.monthlyHours ?? 160,
         overtimeRate:      emp.overtimeRate,
-        hourlyRate:        emp.hourlyRate,
+        hourlyRate:        isHourly ? (rateOverride ?? emp.hourlyRate) : emp.hourlyRate,
         hoursWorked:       hours,
         paidHolidayHours,
         eidDays,
