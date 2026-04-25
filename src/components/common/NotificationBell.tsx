@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Bell, X, CheckCheck, Megaphone, CalendarCheck, CreditCard, FileText, ShieldAlert } from 'lucide-react'
+import { Bell, X, CheckCheck, Megaphone, CalendarCheck, CreditCard, FileText, ShieldAlert, Shield } from 'lucide-react'
 import { collection, query, where, onSnapshot, updateDoc, doc, orderBy, writeBatch } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import { useAppSelector } from '../../store'
@@ -9,7 +9,7 @@ export interface AppNotification {
   userId: string
   title: string
   message: string
-  type: 'leave' | 'advance' | 'payslip' | 'notice' | 'letter' | 'grievance' | 'overtime' | 'cert'
+  type: 'leave' | 'advance' | 'payslip' | 'notice' | 'letter' | 'grievance' | 'overtime' | 'cert' | 'discipline'
   read: boolean
   link?: string
   createdAt: { seconds: number } | null
@@ -23,7 +23,8 @@ const TYPE_ICON: Record<string, React.ElementType> = {
   letter:    FileText,
   grievance: ShieldAlert,
   overtime:  CalendarCheck,
-  cert:      ShieldAlert,
+  cert:       ShieldAlert,
+  discipline: Shield,
 }
 
 const TYPE_COLOR: Record<string, string> = {
@@ -34,7 +35,8 @@ const TYPE_COLOR: Record<string, string> = {
   letter:    'bg-indigo-100 text-indigo-600',
   grievance: 'bg-red-100 text-red-600',
   overtime:  'bg-orange-100 text-orange-600',
-  cert:      'bg-rose-100 text-rose-600',
+  cert:       'bg-rose-100 text-rose-600',
+  discipline: 'bg-red-100  text-red-600',
 }
 
 function timeAgo(ts: { seconds: number } | null): string {

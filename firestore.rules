@@ -99,14 +99,28 @@ service cloud.firestore {
 
     // ── Disciplinary ──────────────────────────────────────────────────
     match /disciplinary/{id} {
-      allow read:   if isTeamLead();
-      allow write:  if isHR();
+      // Team leads and above see all; employees can read their own cases
+      allow read:  if isTeamLead()
+                   || (isAuth() && request.auth.token.email == resource.data.employeeEmail);
+      allow write: if isHR();
     }
 
     // ── Staff / misc ──────────────────────────────────────────────────
     match /staff/{id} {
       allow read:   if isTeamLead();
       allow write:  if isHR();
+    }
+
+    // ── Shift notes (per-shift flags: approve, note, late, delete) ────
+    match /shift_notes/{id} {
+      allow read:   if isTeamLead();
+      allow write:  if isTeamLead();
+    }
+
+    // ── Shift approvals (approve-all summary sent to payroll) ─────────
+    match /shift_approvals/{id} {
+      allow read:   if isHR();
+      allow write:  if isTeamLead();
     }
   }
 }

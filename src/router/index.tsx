@@ -31,6 +31,7 @@ import Noticeboard     from '../pages/portal/Noticeboard'
 import Grievance       from '../pages/portal/Grievance'
 import RequestLetter   from '../pages/portal/RequestLetter'
 import MyOvertime      from '../pages/portal/MyOvertime'
+import MyDisciplinary  from '../pages/portal/MyDisciplinary'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAppSelector(s => s.auth)
@@ -75,7 +76,8 @@ export function AppRouter() {
         <Route path="noticeboard"    element={<EmployeeRoute><Noticeboard /></EmployeeRoute>} />
         <Route path="grievance"      element={<EmployeeRoute><Grievance /></EmployeeRoute>} />
         <Route path="request-letter" element={<EmployeeRoute><RequestLetter /></EmployeeRoute>} />
-        <Route path="my-overtime"    element={<EmployeeRoute><MyOvertime /></EmployeeRoute>} />
+        <Route path="my-overtime"      element={<EmployeeRoute><MyOvertime /></EmployeeRoute>} />
+        <Route path="my-disciplinary" element={<EmployeeRoute><MyDisciplinary /></EmployeeRoute>} />
 
         {/* ── HR / Admin routes ── */}
         <Route path="attendance"   element={<Attendance />} />
