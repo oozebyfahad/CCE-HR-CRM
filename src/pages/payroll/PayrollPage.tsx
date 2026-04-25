@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import {
@@ -48,7 +48,8 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [error,   setError]   = useState('')
 
   // Per-employee variable pay maps
-  const active = employees.filter(e => e.status === 'active')
+  // Employees with no status field (older records) are treated as active
+  const active = employees.filter(e => !e.status || e.status === 'active')
   const [hoursMap,       setHoursMap]       = useState<Record<string, string>>({})
   const [punctualityMap, setPunctualityMap] = useState<Record<string, string>>({})
   // Tracks RotaCloud-derived punctuality eligibility: empId → { lateCount, completedShifts }
@@ -1063,9 +1064,20 @@ function LoansTab() {
 // ── Main Page ─────────────────────────────────────────────────────────
 export default function PayrollPage() {
   const { runs, loading } = useFirebasePayroll()
-  const [pageTab,    setPageTab]    = useState<PageTab>('Runs')
-  const [showNew,    setShowNew]    = useState(false)
-  const [activeRun,  setActiveRun]  = useState<PayrollRun | null>(null)
+  const [pageTab,      setPageTab]      = useState<PageTab>('Runs')
+  const [showNew,      setShowNew]      = useState(false)
+  const [activeRun,    setActiveRun]    = useState<PayrollRun | null>(null)
+  const [pendingRunId, setPendingRunId] = useState<string | null>(null)
+
+  // Navigate to run once onSnapshot delivers it after creation
+  useEffect(() => {
+    if (!pendingRunId) return
+    const run = runs.find(r => r.id === pendingRunId)
+    if (run) {
+      setActiveRun(run)
+      setPendingRunId(null)
+    }
+  }, [runs, pendingRunId])
 
   if (activeRun) {
     // Sync status if run was updated
@@ -1154,8 +1166,7 @@ export default function PayrollPage() {
           onClose={() => setShowNew(false)}
           onCreated={id => {
             setShowNew(false)
-            const run = runs.find(r => r.id === id)
-            if (run) setActiveRun(run)
+            setPendingRunId(id)
           }}
         />
       )}

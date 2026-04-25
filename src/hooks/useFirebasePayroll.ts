@@ -74,7 +74,8 @@ export function useFirebasePayroll() {
     const entries: Omit<PayrollEntry, 'id'>[] = []
 
     for (const emp of employees) {
-      if (emp.status !== 'active') continue
+      // Treat missing status as active; only skip employees explicitly not active
+      if (emp.status && emp.status !== 'active') continue
       const hours            = hoursMap[emp.id]            ?? 0
       const paidHolidayHours = paidHolidayHoursMap[emp.id] ?? 0
       const eidDays          = eidDaysMap[emp.id]          ?? 0
