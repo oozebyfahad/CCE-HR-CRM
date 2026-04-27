@@ -290,7 +290,6 @@ export default function Performance() {
   const applySearch = async () => {
     setAppliedFromDate(recFromDate)
     setAppliedToDate(recToDate)
-    if (!recFromDate && !recToDate) return
     setApiSearching(true)
     setProbeMsg('')
     try {
@@ -301,30 +300,20 @@ export default function Performance() {
       })
       const json = await r.json()
       if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
-        const normalised: CallRecording[] = json.data.map((x: Record<string, unknown>) => ({
-          id:          String(x.id ?? x.callRecordingId ?? Math.random()),
-          callID:      String(x.callID ?? x.call_id ?? ''),
-          duration:    Number(x.duration ?? 0),
-          durationFmt: (() => { const s = Number(x.duration ?? 0); return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}` })(),
-          datetime:    String(x.datetime ?? x.date ?? ''),
-          source:      String(x.source ?? x.from ?? ''),
-          destination: String(x.destination ?? x.to ?? ''),
-          isProtected: Boolean(x.isProtected ?? x.is_protected ?? false),
-          filename:    String(x.filename ?? ''),
-          url:         String(x.url ?? ''),
-        }))
-        setApiRecordings(normalised)
-        setProbeMsg(`Found ${normalised.length} recordings via API`)
+        setApiRecordings(json.data as CallRecording[])
+        setProbeMsg(`Found ${json.data.length} recording${json.data.length !== 1 ? 's' : ''}`)
+      } else if (json.ok && json.data?.length === 0) {
+        setProbeMsg(json.message ?? 'No recordings in this date range')
       } else {
-        // Show what each endpoint returned so we can diagnose
-        const summary = (json.results ?? [])
-          .map((r: {ep: string; status?: number; preview?: string; error?: string}) =>
-            `${r.ep}: ${r.status ?? 'ERR'} — ${(r.preview ?? r.error ?? '').slice(0, 60)}`)
+        // Show all attempts so we can diagnose the right date format
+        const summary = (json.attempts ?? [])
+          .map((a: Record<string, string | number>) =>
+            `[${a.sKey}/${a.eKey}] fmt="${a.fmt}" → ${a.status ?? 'ERR'}: ${String(a.preview ?? a.error ?? '').slice(0, 70)}`)
           .join('\n')
-        setProbeMsg(summary || 'No list endpoint found on VoIP server. Recordings only arrive via webhook after each call.')
+        setProbeMsg(summary || (json.message ?? 'No list endpoint found'))
       }
     } catch {
-      setProbeMsg('Could not reach VoIP proxy.')
+      setProbeMsg('Could not reach VoIP proxy — check Vercel function logs')
     } finally {
       setApiSearching(false)
     }
