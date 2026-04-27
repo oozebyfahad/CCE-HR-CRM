@@ -14,7 +14,7 @@ import { Badge, statusVariant } from '../../components/common/Badge'
 import { Avatar } from '../../components/common/Avatar'
 import { mockReviews } from '../../utils/mockData'
 import { useAppSelector } from '../../store'
-import { useFirebaseRecordings } from '../../hooks/useFirebaseRecordings'
+import { useFirebaseRecordings, type CallRecording } from '../../hooks/useFirebaseRecordings'
 import { useFirebasePerformanceReviews } from '../../hooks/useFirebasePerformanceReviews'
 import { read as xlsxRead, utils as xlsxUtils } from 'xlsx'
 
@@ -281,13 +281,49 @@ export default function Performance() {
   const [playingId,        setPlayingId]        = useState<string | null>(null)
   const [appliedFromDate,  setAppliedFromDate]  = useState('')
   const [appliedToDate,    setAppliedToDate]    = useState('')
+  const [apiRecordings,    setApiRecordings]    = useState<CallRecording[]>([])
+  const [apiSearching,     setApiSearching]     = useState(false)
 
-  const applySearch = () => {
+  const applySearch = async () => {
     setAppliedFromDate(recFromDate)
     setAppliedToDate(recToDate)
+    setApiSearching(true)
+    try {
+      const res = await fetch('/api/voip', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ action: 'list', from: recFromDate, to: recToDate }),
+      })
+      const json = await res.json()
+      if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
+        // Normalise VoIP API fields → CallRecording shape
+        const normalised: CallRecording[] = json.data.map((r: Record<string, string | number | boolean>) => ({
+          id:          String(r.id ?? r.callRecordingId ?? ''),
+          callID:      String(r.callID ?? r.call_id ?? ''),
+          duration:    Number(r.duration ?? 0),
+          durationFmt: (() => { const s = Number(r.duration ?? 0); return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}` })(),
+          datetime:    String(r.datetime ?? r.date ?? ''),
+          source:      String(r.source ?? r.from ?? ''),
+          destination: String(r.destination ?? r.to ?? ''),
+          isProtected: Boolean(r.isProtected ?? r.is_protected ?? false),
+          filename:    String(r.filename ?? ''),
+          url:         String(r.url ?? ''),
+        }))
+        setApiRecordings(normalised)
+      }
+    } catch {
+      // silently ignore — fall back to Firebase results only
+    } finally {
+      setApiSearching(false)
+    }
   }
 
-  const recordings = liveRecordings.filter(r => {
+  // Merge Firebase + direct API results, deduplicated by id
+  const mergedRecordings = [...liveRecordings, ...apiRecordings].filter(
+    (r, i, arr) => arr.findIndex(x => x.id === r.id) === i
+  )
+
+  const recordings = mergedRecordings.filter(r => {
     if (recSearch       && !r.source.includes(recSearch)       && !r.destination.includes(recSearch)) return false
     if (recSource       && !r.source.includes(recSource))      return false
     if (recDest         && !r.destination.includes(recDest))   return false
@@ -758,14 +794,16 @@ export default function Performance() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => { setRecSource(''); setRecDest(''); setRecFromDate(''); setRecToDate(''); setRecAgent('All Agents'); setAppliedFromDate(''); setAppliedToDate('') }}
+                  onClick={() => { setRecSource(''); setRecDest(''); setRecFromDate(''); setRecToDate(''); setRecAgent('All Agents'); setAppliedFromDate(''); setAppliedToDate(''); setApiRecordings([]) }}
                   className="flex items-center justify-center gap-2 border border-gray-200 text-gray-500 hover:text-secondary px-4 py-2 rounded-lg text-sm font-medium transition-colors">
                   <X size={13} /> Clear
                 </button>
                 <button
                   onClick={applySearch}
-                  className="flex items-center justify-center gap-2 bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
-                  <Search size={13} /> Search
+                  disabled={apiSearching}
+                  className="flex items-center justify-center gap-2 bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60">
+                  {apiSearching ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
+                  {apiSearching ? 'Searching…' : 'Search'}
                 </button>
               </div>
             </div>
