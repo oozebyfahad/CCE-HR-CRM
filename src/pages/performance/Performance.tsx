@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import {
   RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer, Tooltip,
   ComposedChart, Bar, XAxis, YAxis, CartesianGrid, Line, AreaChart, Area,
@@ -16,6 +16,7 @@ import { mockReviews } from '../../utils/mockData'
 import { useAppSelector } from '../../store'
 import { useFirebaseRecordings } from '../../hooks/useFirebaseRecordings'
 import { useFirebasePerformanceReviews } from '../../hooks/useFirebasePerformanceReviews'
+import { read as xlsxRead, utils as xlsxUtils } from 'xlsx'
 
 // ── Call chart mock data (replace with live Yestech data later) ───────
 
@@ -39,14 +40,21 @@ const TODAY_SPARK  = [12, 18, 15, 22, 30, 25, 35, 42]
 const WEEK_SPARK   = [180, 210, 195, 230, 245, 220, 260]
 const MONTH_SPARK  = [820, 910, 880, 950, 1020, 990, 1100, 1050, 1130, 1200]
 
-const AGENTS   = ['All Agents', 'Jyrney', 'Alex', 'Sarah', 'Mike', 'Emma']
-const MOCK_LOGS = [
-  { id: 1, date: '2026-04-25 00:07', source: '447980449616', dest: '200', duration: '02:06', tta: '0:08', status: 'Answered', ext: '200', callerid: '',            notes: '',                  area: 'London'     },
-  { id: 2, date: '2026-04-25 00:08', source: '200',          dest: '443300252525', duration: '02:45', tta: '0:12', status: 'Answered', ext: '200', callerid: '',            notes: '',                  area: 'Manchester' },
-  { id: 3, date: '2026-04-25 00:11', source: '447886801402', dest: '200', duration: '01:20', tta: '0:05', status: 'Missed',   ext: '200', callerid: '02038838699', notes: '',                  area: 'Birmingham' },
-  { id: 4, date: '2026-04-25 00:15', source: '447712345678', dest: '201', duration: '03:45', tta: '0:10', status: 'Answered', ext: '201', callerid: '02038838699', notes: 'Callback requested', area: 'Leeds'      },
-  { id: 5, date: '2026-04-25 00:22', source: '201',          dest: '447923456789', duration: '01:55', tta: '0:03', status: 'Answered', ext: '201', callerid: '',            notes: '',                  area: 'London'     },
-]
+const AGENTS = ['All Agents', 'Jyrney', 'Alex', 'Sarah', 'Mike', 'Emma']
+
+interface LogRow {
+  id: number
+  date: string
+  source: string
+  dest: string
+  duration: string
+  tta: string
+  status: string
+  ext: string
+  callerid: string
+  notes: string
+  area: string
+}
 
 const radarData = [
   { skill: 'Communication', score: 8 },
@@ -270,11 +278,14 @@ export default function Performance() {
   const [recAgent,    setRecAgent]    = useState('All Agents')
   const [recSelected, setRecSelected] = useState<string[]>([])
   const [recSearch,   setRecSearch]   = useState('')
+  const [playingId,   setPlayingId]   = useState<string | null>(null)
 
   const recordings = liveRecordings.filter(r => {
     if (recSearch  && !r.source.includes(recSearch)  && !r.destination.includes(recSearch)) return false
     if (recSource  && !r.source.includes(recSource))      return false
     if (recDest    && !r.destination.includes(recDest))   return false
+    if (recFromDate && r.datetime.slice(0, 10) < recFromDate) return false
+    if (recToDate   && r.datetime.slice(0, 10) > recToDate)   return false
     return true
   })
   const toggleRec = (id: string) =>
@@ -286,12 +297,40 @@ export default function Performance() {
   const [logFile,     setLogFile]     = useState<File | null>(null)
   const [logDragOver, setLogDragOver] = useState(false)
   const [logSearch,   setLogSearch]   = useState('')
-  const [logsData]                    = useState(MOCK_LOGS)
+  const [logsData,    setLogsData]    = useState<LogRow[]>([])
+  const [logParsing,  setLogParsing]  = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const parseLogFile = useCallback(async (file: File) => {
+    setLogParsing(true)
+    try {
+      const buffer = await file.arrayBuffer()
+      const wb = xlsxRead(new Uint8Array(buffer), { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows = xlsxUtils.sheet_to_json<Record<string, string>>(ws, { defval: '' })
+      const pick = (r: Record<string, string>, ...keys: string[]) =>
+        keys.map(k => r[k] ?? '').find(v => v !== '') ?? ''
+      setLogsData(rows.map((r, i) => ({
+        id:       i + 1,
+        date:     pick(r, 'Date', 'DATE', 'DateTime', 'date', 'Start Time'),
+        source:   pick(r, 'Source', 'From', 'Caller', 'source', 'CallerID'),
+        dest:     pick(r, 'Dest', 'Destination', 'To', 'dest', 'Called'),
+        duration: pick(r, 'Duration', 'duration', 'Duration (s)', 'Dur'),
+        tta:      pick(r, 'TTA', 'tta', 'Wait Time', 'Ring Time', 'Answer Delay'),
+        status:   pick(r, 'Status', 'status', 'Disposition', 'Call Status'),
+        ext:      pick(r, 'Ext', 'Extension', 'ext', 'DID', 'DDI'),
+        callerid: pick(r, 'Ext CallerID', 'CallerID', 'callerid', 'CID', 'CLI'),
+        notes:    pick(r, 'Notes', 'notes', 'Comments', 'Description'),
+        area:     pick(r, 'Area', 'area', 'Location', 'Region', 'Site'),
+      })))
+    } finally {
+      setLogParsing(false)
+    }
+  }, [])
 
   const handleFileDrop = (e: React.DragEvent) => {
     e.preventDefault(); setLogDragOver(false)
-    const f = e.dataTransfer.files[0]; if (f) setLogFile(f)
+    const f = e.dataTransfer.files[0]; if (f) { setLogFile(f); parseLogFile(f) }
   }
   const filteredLogs = logsData.filter(l =>
     !logSearch || l.source.includes(logSearch) || l.dest.includes(logSearch) ||
@@ -540,7 +579,7 @@ export default function Performance() {
             }`}
           >
             <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) setLogFile(f) }} />
+              onChange={e => { const f = e.target.files?.[0]; if (f) { setLogFile(f); parseLogFile(f) } }} />
             <div className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3"
               style={{ background: logFile ? '#d1fae5' : '#eff6ff', width:52, height:52 }}>
               <Upload size={22} className={logFile ? 'text-emerald-500' : 'text-primary'} />
@@ -548,14 +587,17 @@ export default function Performance() {
             {logFile ? (
               <>
                 <p className="text-sm font-semibold text-secondary">{logFile.name}</p>
-                <p className="text-xs text-emerald-500 mt-1 font-medium">File loaded — {logsData.length} records ready</p>
+                {logParsing
+                  ? <p className="text-xs text-primary mt-1 font-medium flex items-center justify-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Parsing…</p>
+                  : <p className="text-xs text-emerald-500 mt-1 font-medium">{logsData.length} records loaded</p>
+                }
                 <p className="text-[10px] text-gray-400 mt-1">Click to replace</p>
               </>
             ) : (
               <>
-                <p className="text-sm font-semibold text-secondary">Drop your call log file here</p>
+                <p className="text-sm font-semibold text-secondary">Drop your call log export here</p>
                 <p className="text-xs text-gray-400 mt-1">or click to browse — accepts <strong>.csv</strong> and <strong>.xlsx</strong></p>
-                <p className="text-[10px] text-gray-300 mt-2">Exported from Yestech or compatible PBX systems</p>
+                <p className="text-[10px] text-gray-300 mt-2">Export from your VoIP portal and drop it here to view</p>
               </>
             )}
           </div>
@@ -601,7 +643,12 @@ export default function Performance() {
                     </tr>
                   ))}
                   {filteredLogs.length === 0 && (
-                    <tr><td colSpan={10} className="px-4 py-12 text-center text-gray-400">No matching records found</td></tr>
+                    <tr>
+                      <td colSpan={10} className="px-4 py-12 text-center">
+                        <Upload size={20} className="text-gray-200 mx-auto mb-2" />
+                        <p className="text-sm text-gray-400">{logFile ? 'No matching records' : 'Drop a call log file above to view records'}</p>
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
@@ -615,6 +662,30 @@ export default function Performance() {
       ════════════════════════════════════════════════════════════════ */}
       {tab === 'recordings' && (
         <div className="space-y-4">
+
+          {/* Inline audio player */}
+          {playingId && (() => {
+            const rec = recordings.find(r => r.id === playingId)
+            return (
+              <div className="card p-4 flex items-center gap-4 border-l-4 border-primary">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-secondary mb-1.5">
+                    {rec?.source ?? playingId} → {rec?.destination} &nbsp;·&nbsp; {rec?.datetime} &nbsp;·&nbsp; {rec?.durationFmt}
+                  </p>
+                  <audio
+                    controls
+                    autoPlay
+                    className="w-full h-9"
+                    src={`/api/voip?id=${encodeURIComponent(playingId)}`}
+                  />
+                </div>
+                <button onClick={() => setPlayingId(null)}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 flex-shrink-0">
+                  <X size={15} />
+                </button>
+              </div>
+            )
+          })()}
 
           {/* Filters */}
           <div className="card p-4 space-y-3">
@@ -747,10 +818,10 @@ export default function Performance() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-0.5">
-                          <a href={r.url} target="_blank" rel="noreferrer" title="Play"
-                            className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-primary/10 text-primary transition-colors">
+                          <button onClick={() => setPlayingId(playingId === r.id ? null : r.id)} title="Play"
+                            className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${playingId === r.id ? 'bg-primary text-white' : 'hover:bg-primary/10 text-primary'}`}>
                             <Play size={12} fill="currentColor" />
-                          </a>
+                          </button>
                           <button title="Lock" className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${r.isProtected ? 'text-amber-500 hover:bg-amber-50' : 'text-gray-400 hover:bg-gray-100'}`}>
                             <Lock size={12} />
                           </button>
@@ -760,7 +831,7 @@ export default function Performance() {
                           <button title="Email" className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
                             <Mail size={12} />
                           </button>
-                          <a href={r.url} download title="Download"
+                          <a href={`/api/voip?id=${encodeURIComponent(r.id)}&dl=1`} download title="Download"
                             className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-primary/10 text-primary transition-colors">
                             <Download size={12} />
                           </a>
