@@ -1,0 +1,68 @@
+<html>
+<head>
+<title>VIP VoIP Call Recordings Events API</title>
+</head>
+<body>
+	<h1>Call Recordings Events API</h1>
+	<p>
+	<h2>Get Current Webhooks</h2>
+	<pre>curl --data 'token=XXX&cmd=get' https://voipserverXXXX.vipvoipuk.net/api/callRecordingWebHooksV1.php</pre>
+	<pre>
+[
+			{
+				"url":"https://your.url",
+				"token":"XXX"
+			},
+			{
+				"url":"https://your.other.url",
+				"token":"XXX"
+			}
+]
+		</pre>
+
+	<h2>Add A Web Hook</h2>
+	<pre>curl --data 'token=XXX&url=https://some.url&customerToken=12345&cmd=add' https://voipserverXXXX.vipvoipuk.net/api/callRecordingWebHooksV1.php</pre>
+
+	<h2>Remove A Web Hook</h2>
+	<pre>curl --data 'token=XXX&url=https://some.url&customerToken=12345&cmd=remove' https://voipserverXXXX.vipvoipuk.net/api/callRecordingWebHooksV1.php</pre>
+	</p>
+	<p>
+		<h2>Call Recording Ready</h2>
+		We will send a HTTP POST request to your URL in the following format:<br />
+
+		<pre>https://www.yourdomain.com/your/voip/code.php</pre>
+		<br />
+		The parameters are:
+		<ul>
+			<li>authenticationToken - A token provided by you. E.g b1860783a249a02405f6988c9e83f65a. Possibly to identify the customer/site the call recording came from.</li>
+			<li>eventType - This tells you what kind of event occurred. The possible values are callRecordingReady</li>
+			<li>id - The unique id of this call recording. E.g 1415640373145755900227</li>
+			<li>callID - The unique id of the call. Useful for matching a call recording to a call pop event. E.g 12345.6789</li>
+			<li>duration - Duration in seconds of the call recording. E.g 66</li>
+			<li>datetime - Date and time of when the call occurred. E.g 2014-11-11T13:14:47</li>
+			<li>source - Who originated the call. Could be an extension number if outbound. Or a phone number if inbound. E.g 07845552274</li>
+			<li>destination - Where the call terminated. Could be an extension number if inbound. Or a phone number if outbound. E.g 200</li>
+			<li>isProtected - True or false indicating if the call recording was marked as protected in the VIP VoIP portal. E.g true</li>
+			<li>filename - The filename of the recording. E.g 1415711687.94_227_2014-11-11 13:14:47_293_02392621609_.wav</li>
+			<li>file - The actual call recording file as a .mp4 for playback in a HTML5 web app.</li>
+			<li>url - A URL that you can use to retrieve the file later by suffixing &token=yourtoken to the URL if you do not wish to store it yourself. e.g https://voipserverXXXX.vipvoipuk.net/api/callRecordingGetV1.php?callRecordingId=123abc</li>
+		</ul>
+		An example of how to receive these events in PHP:
+<pre>
+$authenticationToken = $_POST['authenticationToken'];
+
+//put your security validation here
+
+$eventType = $_POST['eventType'];
+$id = $_POST['id'];
+$duration = $_POST['duration'];
+//etc etc
+
+//handling the file
+move_uploaded_file($_FILES['file']['tmp_name'],$whereYouStoreYourRecordings);
+
+//you can now insert the information in to your database
+</pre>
+	</p>
+</body>
+</html>

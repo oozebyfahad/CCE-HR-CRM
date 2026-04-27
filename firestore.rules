@@ -1,13 +1,11 @@
-rules_version = '2';
+ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: is the request from a signed-in user?
     function isAuth() {
       return request.auth != null;
     }
 
-    // Helper: read the caller's user doc to check their role
     function role() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
@@ -16,12 +14,10 @@ service cloud.firestore {
     function isHR()       { return isAuth() && (role() == 'admin' || role() == 'hr'); }
     function isTeamLead() { return isAuth() && (role() == 'admin' || role() == 'hr' || role() == 'team_lead'); }
 
-    // ── Employees ────────────────────────────────────────────────────
     match /employees/{id} {
       allow read:   if isTeamLead()
                     || (isAuth() && request.auth.token.email == resource.data.email);
       allow create: if isHR();
-      // HR can update anything; employees can update only their own rotacloudId
       allow update: if isHR()
                     || (isAuth()
                         && request.auth.token.email == resource.data.email
@@ -29,22 +25,18 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // ── Users (portal accounts) ──────────────────────────────────────
     match /users/{id} {
-      // Any signed-in user can read their own doc; admin/HR can read all
       allow read:   if isAuth() && (request.auth.uid == id || isHR());
       allow create: if isAdmin();
       allow update: if isAdmin() || request.auth.uid == id;
       allow delete: if isAdmin();
     }
 
-    // ── Attendance ───────────────────────────────────────────────────
     match /attendance/{id} {
       allow read:   if isTeamLead();
       allow write:  if isHR();
     }
 
-    // ── Leave requests ────────────────────────────────────────────────
     match /leave_requests/{id} {
       allow read:   if isTeamLead();
       allow create: if isHR();
@@ -52,95 +44,78 @@ service cloud.firestore {
       allow delete: if isHR();
     }
 
-    // ── Payroll runs + entries sub-collection ─────────────────────────
     match /payroll_runs/{runId} {
       allow read:   if isHR();
       allow write:  if isHR();
-
       match /entries/{entryId} {
         allow read:   if isHR();
         allow write:  if isHR();
       }
     }
 
-    // ── Advances ─────────────────────────────────────────────────────
     match /advances/{id} {
       allow read:   if isHR();
       allow write:  if isHR();
     }
 
-    // ── Loans ─────────────────────────────────────────────────────────
     match /loans/{id} {
       allow read:   if isHR();
       allow write:  if isHR();
     }
 
-    // ── Recruitment / Applicants ──────────────────────────────────────
     match /applicants/{id} {
-      // Public can create (job applications); HR reads/updates
       allow create: if true;
       allow read:   if isHR();
       allow update: if isHR();
       allow delete: if isHR();
     }
 
-    // ── Timesheets ────────────────────────────────────────────────────
     match /timesheets/{id} {
       allow read:   if isTeamLead();
       allow write:  if isAuth();
     }
 
-    // ── Performance reviews ───────────────────────────────────────────
     match /performance/{id} {
       allow read:   if isTeamLead();
       allow write:  if isHR();
     }
 
-    // ── Training ──────────────────────────────────────────────────────
     match /training/{id} {
       allow read:   if isTeamLead();
       allow write:  if isHR();
     }
 
-    // ── Disciplinary ──────────────────────────────────────────────────
     match /disciplinary/{id} {
-      // Team leads and above see all; employees can read their own cases
       allow read:  if isTeamLead()
                    || (isAuth() && request.auth.token.email == resource.data.employeeEmail);
       allow write: if isHR();
     }
 
-    // ── Staff / misc ──────────────────────────────────────────────────
     match /staff/{id} {
       allow read:   if isTeamLead();
       allow write:  if isHR();
     }
 
-    // ── Shift notes (per-shift flags: approve, note, late, delete) ────
     match /shift_notes/{id} {
       allow read:   if isTeamLead();
       allow write:  if isTeamLead();
     }
 
-    // ── Shift approvals (approve-all summary sent to payroll) ─────────
     match /shift_approvals/{id} {
       allow read:   if isHR();
       allow write:  if isTeamLead();
     }
 
-    // ── Call recordings (written by webhook via Admin SDK) ───────────
     match /call_recordings/{id} {
       allow read:  if isHR();
-      allow write: if false; // Admin SDK bypasses rules — no client writes
+      allow write: if false;
     }
 
-    // ── Organizations (multi-org RotaCloud keys) ───────────────────────
     match /organizations/{id} {
       allow read:   if isAdmin();
       allow write:  if isAdmin();
     }
 
-    // ── Notifications ─────────────────────────────────────────────────
     match /notifications/{id} {
       allow read:   if isAuth() && (resource.data.userId == request.auth.token.email || isHR());
       allow create: if isHR();
