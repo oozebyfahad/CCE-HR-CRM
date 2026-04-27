@@ -283,38 +283,43 @@ export default function Performance() {
   const [appliedToDate,    setAppliedToDate]    = useState('')
   const [apiRecordings,    setApiRecordings]    = useState<CallRecording[]>([])
   const [apiSearching,     setApiSearching]     = useState(false)
+  const [voipStatus,       setVoipStatus]       = useState<{ checking: boolean; webhooks: {url:string;token:string}[]; checked: boolean; error?: string }>({ checking: false, webhooks: [], checked: false })
+  const [registering,      setRegistering]      = useState(false)
 
-  const applySearch = async () => {
+  const applySearch = () => {
     setAppliedFromDate(recFromDate)
     setAppliedToDate(recToDate)
-    setApiSearching(true)
+  }
+
+  const checkVoipStatus = async () => {
+    setVoipStatus({ checking: true, webhooks: [], checked: false })
     try {
-      const res = await fetch('/api/voip', {
+      const r = await fetch('/api/voip', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ action: 'list', from: recFromDate, to: recToDate }),
+        body:    JSON.stringify({ action: 'check' }),
       })
-      const json = await res.json()
-      if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
-        // Normalise VoIP API fields → CallRecording shape
-        const normalised: CallRecording[] = json.data.map((r: Record<string, string | number | boolean>) => ({
-          id:          String(r.id ?? r.callRecordingId ?? ''),
-          callID:      String(r.callID ?? r.call_id ?? ''),
-          duration:    Number(r.duration ?? 0),
-          durationFmt: (() => { const s = Number(r.duration ?? 0); return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}` })(),
-          datetime:    String(r.datetime ?? r.date ?? ''),
-          source:      String(r.source ?? r.from ?? ''),
-          destination: String(r.destination ?? r.to ?? ''),
-          isProtected: Boolean(r.isProtected ?? r.is_protected ?? false),
-          filename:    String(r.filename ?? ''),
-          url:         String(r.url ?? ''),
-        }))
-        setApiRecordings(normalised)
-      }
-    } catch {
-      // silently ignore — fall back to Firebase results only
+      const json = await r.json()
+      setVoipStatus({ checking: false, webhooks: json.webhooks ?? [], checked: true, error: json.ok ? undefined : json.raw })
+    } catch (e: unknown) {
+      setVoipStatus({ checking: false, webhooks: [], checked: true, error: String(e) })
+    }
+  }
+
+  const registerWebhook = async () => {
+    setRegistering(true)
+    try {
+      const webhookUrl = `${window.location.origin}/api/yestech-webhook`
+      const customerToken = 'cce_voip_2026'
+      const r = await fetch('/api/voip', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ action: 'register', webhookUrl, customerToken }),
+      })
+      const json = await r.json()
+      if (json.ok) await checkVoipStatus()
     } finally {
-      setApiSearching(false)
+      setRegistering(false)
     }
   }
 
@@ -729,6 +734,50 @@ export default function Performance() {
               </div>
             )
           })()}
+
+          {/* VoIP connection status */}
+          <div className="card p-4 flex flex-wrap items-center gap-3">
+            <div className="flex-1 min-w-0">
+              {!voipStatus.checked && !voipStatus.checking && (
+                <p className="text-xs text-gray-400">Check that your VoIP webhook is registered before searching.</p>
+              )}
+              {voipStatus.checking && (
+                <p className="text-xs text-gray-400 flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Checking VoIP connection…</p>
+              )}
+              {voipStatus.checked && voipStatus.webhooks.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-emerald-600 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Webhook registered — recordings will appear automatically after each call
+                  </p>
+                  {voipStatus.webhooks.map((w, i) => (
+                    <p key={i} className="text-[10px] text-gray-400 mt-0.5 font-mono">{w.url}</p>
+                  ))}
+                </div>
+              )}
+              {voipStatus.checked && voipStatus.webhooks.length === 0 && !voipStatus.error && (
+                <p className="text-xs font-semibold text-amber-600 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> No webhook registered — click Register to set it up
+                </p>
+              )}
+              {voipStatus.checked && voipStatus.error && (
+                <p className="text-xs text-red-500">Token error — check VOIP_API_TOKEN in Vercel: <span className="font-mono">{voipStatus.error?.slice(0, 80)}</span></p>
+              )}
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              <button onClick={checkVoipStatus} disabled={voipStatus.checking}
+                className="flex items-center gap-1.5 text-xs border border-gray-200 text-gray-500 hover:text-secondary px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                {voipStatus.checking ? <Loader2 size={11} className="animate-spin" /> : <Phone size={11} />}
+                Check Connection
+              </button>
+              {voipStatus.checked && voipStatus.webhooks.length === 0 && !voipStatus.error && (
+                <button onClick={registerWebhook} disabled={registering}
+                  className="flex items-center gap-1.5 text-xs bg-primary text-white px-3 py-1.5 rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50">
+                  {registering ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
+                  Register Webhook
+                </button>
+              )}
+            </div>
+          </div>
 
           {/* Filters */}
           <div className="card p-4 space-y-3">

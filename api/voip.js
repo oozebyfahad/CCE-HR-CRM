@@ -1,10 +1,12 @@
 /**
  * VIP VoIP UK — secure proxy (Vercel)
  *
- * GET /api/voip?id=ID          → stream/play recording (token injected server-side)
- * GET /api/voip?id=ID&dl=1     → download recording
- * POST /api/voip { action:'list', from:'YYYY-MM-DD', to:'YYYY-MM-DD' }
- *   → fetch recording list from VoIP server for the given date range
+ * GET  /api/voip?id=ID        → redirect to playback URL (token injected)
+ * GET  /api/voip?id=ID&dl=1   → redirect to download URL
+ * POST /api/voip { action:'check' }
+ *   → verify token + list registered webhooks
+ * POST /api/voip { action:'register', webhookUrl, customerToken }
+ *   → register the webhook with the VoIP server
  *
  * Vercel env: VOIP_API_TOKEN
  */
@@ -14,55 +16,52 @@ const BASE = 'https://voipserver5216.vipvoipuk.net/api'
 export default async function handler(req, res) {
   const TOKEN = process.env.VOIP_API_TOKEN
   if (!TOKEN) {
-    return res.status(500).json({ error: 'VOIP_API_TOKEN not configured' })
+    return res.status(500).json({ error: 'VOIP_API_TOKEN not configured in Vercel env vars' })
   }
 
-  // ── POST: fetch recording list by date range ──────────────────────────
+  // ── POST actions ──────────────────────────────────────────────────────
   if (req.method === 'POST') {
-    const { action, from, to } = req.body ?? {}
+    const { action, webhookUrl, customerToken } = req.body ?? {}
 
-    if (action !== 'list') {
-      return res.status(400).json({ error: 'Unknown action' })
-    }
-
-    // Try the most likely list endpoint — POST with form-encoded body
-    // (same pattern as callRecordingWebHooksV1.php which uses --data)
-    const endpoints = [
-      'callRecordingGetListV1.php',
-      'callRecordingsGetV1.php',
-      'callRecordingListV1.php',
-    ]
-
-    for (const ep of endpoints) {
+    // Check token + list registered webhooks
+    if (action === 'check') {
       try {
-        const body = new URLSearchParams({ token: TOKEN })
-        if (from) body.append('from', from)
-        if (to)   body.append('to',   to)
-
-        const r = await fetch(`${BASE}/${ep}`, {
+        const r = await fetch(`${BASE}/callRecordingWebHooksV1.php`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body:    body.toString(),
+          body:    new URLSearchParams({ token: TOKEN, cmd: 'get' }).toString(),
         })
-
         const text = await r.text()
-        // Try to parse as JSON
         try {
           const data = JSON.parse(text)
-          // If it's an array or has a recordings key, we found the right endpoint
-          if (Array.isArray(data) || (data && typeof data === 'object')) {
-            return res.json({ ok: true, endpoint: ep, data: Array.isArray(data) ? data : (data.recordings ?? data.data ?? [data]) })
-          }
+          return res.json({ ok: true, webhooks: Array.isArray(data) ? data : [], raw: text })
         } catch {
-          // Not JSON — not the right endpoint, try next
+          return res.json({ ok: false, webhooks: [], raw: text.slice(0, 300) })
         }
-      } catch {
-        // Network error on this endpoint, try next
+      } catch (err) {
+        return res.status(500).json({ ok: false, error: String(err), webhooks: [] })
       }
     }
 
-    // None of the endpoints worked — return empty so UI shows "no results"
-    return res.json({ ok: false, data: [], message: 'List endpoint not found on VoIP server — recordings only available via webhook' })
+    // Register the webhook
+    if (action === 'register') {
+      if (!webhookUrl || !customerToken) {
+        return res.status(400).json({ error: 'webhookUrl and customerToken required' })
+      }
+      try {
+        const r = await fetch(`${BASE}/callRecordingWebHooksV1.php`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body:    new URLSearchParams({ token: TOKEN, cmd: 'add', url: webhookUrl, customerToken }).toString(),
+        })
+        const text = await r.text()
+        return res.json({ ok: r.ok, raw: text })
+      } catch (err) {
+        return res.status(500).json({ ok: false, error: String(err) })
+      }
+    }
+
+    return res.status(400).json({ error: 'Unknown action' })
   }
 
   // ── GET: play or download a single recording ──────────────────────────
