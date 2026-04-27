@@ -304,6 +304,8 @@ export default function Performance() {
         setProbeMsg(`Found ${json.data.length} recording${json.data.length !== 1 ? 's' : ''}`)
       } else if (json.ok && json.data?.length === 0) {
         setProbeMsg(json.message ?? 'No recordings in this date range')
+      } else if (json.message === 'SELECT_DATES') {
+        setProbeMsg('Please select a From and To date before searching.')
       } else {
         // Show all attempts so we can diagnose the right date format
         const summary = (json.attempts ?? [])
