@@ -43,46 +43,46 @@ export default async function handler(req, res) {
       }
     }
 
-    // Probe for undocumented list endpoints
+    // Fetch historical recordings via confirmed endpoint callRecordingListV1.php
     if (action === 'probe') {
       const { from, to } = req.body ?? {}
-      const candidates = [
-        'callRecordingGetListV1.php',
-        'callRecordingsGetV1.php',
-        'callRecordingListV1.php',
-        'getCallRecordingsV1.php',
-        'callRecordingSearchV1.php',
-        'callRecordingsV1.php',
-        'getRecordingsV1.php',
-        'recordingsV1.php',
-        'callRecordingGetAllV1.php',
-        'cdrV1.php',
-        'callsV1.php',
+
+      // The endpoint uses startDate/endDate — try a few date formats the server might expect
+      const formats = [
+        // YYYY-MM-DD (ISO)
+        { startDate: from, endDate: to },
+        // YYYY-MM-DD HH:MM:SS
+        { startDate: from ? `${from} 00:00:00` : '', endDate: to ? `${to} 23:59:59` : '' },
+        // DD-MM-YYYY
+        { startDate: from ? from.split('-').reverse().join('-') : '', endDate: to ? to.split('-').reverse().join('-') : '' },
+        // DD/MM/YYYY
+        { startDate: from ? from.split('-').reverse().join('/') : '', endDate: to ? to.split('-').reverse().join('/') : '' },
       ]
+
       const results = []
-      for (const ep of candidates) {
+      for (const params of formats) {
         try {
-          const body = new URLSearchParams({ token: TOKEN })
-          if (from) body.append('from', from)
-          if (to)   body.append('to',   to)
-          const r = await fetch(`${BASE}/${ep}`, {
+          const body = new URLSearchParams({ token: TOKEN, ...params })
+          const r = await fetch(`${BASE}/callRecordingListV1.php`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body:    body.toString(),
           })
           const text = await r.text()
-          results.push({ ep, status: r.status, preview: text.slice(0, 120) })
-          // If it looks like JSON data (not an error), parse and return immediately
-          if (r.status === 200 && text.trim().startsWith('[')) {
+          results.push({ params, status: r.status, preview: text.slice(0, 200) })
+
+          if (r.status === 200) {
             try {
               const data = JSON.parse(text)
-              if (Array.isArray(data) && data.length > 0) {
-                return res.json({ ok: true, found: ep, data, results })
-              }
-            } catch {}
+              const arr = Array.isArray(data) ? data : (data.recordings ?? data.data ?? [])
+              return res.json({ ok: true, data: arr, results })
+            } catch {
+              // 200 but not JSON — return raw so we can see it
+              return res.json({ ok: false, data: [], results })
+            }
           }
         } catch (err) {
-          results.push({ ep, error: String(err) })
+          results.push({ params, error: String(err) })
         }
       }
       return res.json({ ok: false, data: [], results })
