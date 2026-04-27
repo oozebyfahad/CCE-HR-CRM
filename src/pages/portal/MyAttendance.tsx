@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 import { fetchRotaAttendance, monthToUnix, type RotaAttendance } from '../../services/rotacloud'
 import { unixToLocalDate, unixToHHMM } from '../../hooks/useRotaAttendance'
 import { fmt12, fmtHours, toYMD } from '../../hooks/useFirebaseTimesheets'
@@ -13,8 +13,7 @@ import { fmt12, fmtHours, toYMD } from '../../hooks/useFirebaseTimesheets'
 
 export default function MyAttendance() {
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees } = useFirebaseEmployees()
-  const myEmployee    = employees.find(e => e.email === currentUser?.email)
+  const { employee: myEmployee } = useMyEmployee(currentUser?.email)
 
   const today      = new Date()
   const todayYMD   = toYMD(today)

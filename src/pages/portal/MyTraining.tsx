@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { GraduationCap, CheckCircle2, Clock, AlertTriangle, Award, BookOpen, ExternalLink, Shield } from 'lucide-react'
 import { mockCourses, mockEnrolments } from '../../utils/mockData'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 
 const STATUS_CONFIG = {
   completed:   { label: 'Completed',   bg: 'bg-emerald-100', text: 'text-emerald-700', icon: CheckCircle2,  dot: 'bg-emerald-500' },
@@ -22,8 +22,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function MyTraining() {
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees } = useFirebaseEmployees()
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
+  const { employee: myEmployee } = useMyEmployee(currentUser?.email)
 
   const [filter, setFilter] = useState<'all' | 'mandatory' | 'completed' | 'overdue'>('all')
 

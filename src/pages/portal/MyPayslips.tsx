@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 import { useCurrency } from '../../context/CurrencyContext'
 
 interface Payslip {
@@ -133,11 +133,10 @@ function PayslipModal({
 
 export default function MyPayslips() {
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees } = useFirebaseEmployees()
+  const { employee: myEmployee } = useMyEmployee(currentUser?.email)
   const { fmt }       = useCurrency()
   const [selected, setSelected] = useState<Payslip | null>(null)
 
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
   const payslips   = generatePayslips(myEmployee?.salary ?? 50000)
 
   const paidSlips = payslips.filter(p => p.status === 'paid')

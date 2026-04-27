@@ -6,7 +6,7 @@ import {
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { doc, updateDoc } from 'firebase/firestore'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 import { storage, db } from '../../config/firebase'
 import { fetchRotaUsers } from '../../services/rotacloud'
 
@@ -45,8 +45,7 @@ function resizeImage(file: File, maxPx = 200): Promise<string> {
 
 export default function MyProfile() {
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees, loading, updateEmployee } = useFirebaseEmployees()
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
+  const { employee: myEmployee, loading, updateEmployee } = useMyEmployee(currentUser?.email)
 
   const photoInputRef = useRef<HTMLInputElement>(null)
   const certInputRef  = useRef<HTMLInputElement>(null)

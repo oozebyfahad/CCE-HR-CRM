@@ -6,7 +6,7 @@ import {
 import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 
 interface EmployeeDocument {
   id: string
@@ -44,8 +44,7 @@ function fmtDate(ts: { seconds: number } | null) {
 
 export default function MyDocuments() {
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees } = useFirebaseEmployees()
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
+  const { employee: myEmployee } = useMyEmployee(currentUser?.email)
 
   const [docs, setDocs]         = useState<EmployeeDocument[]>([])
   const [category, setCategory] = useState('all')

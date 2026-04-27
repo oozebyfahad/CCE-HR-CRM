@@ -20,7 +20,7 @@ import { unixToHHMM, unixToLocalDate } from '../../hooks/useRotaAttendance'
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 import { fmt12, toYMD, fmtHours, weekMonday } from '../../hooks/useFirebaseTimesheets'
 import { useFirebaseLeave } from '../../hooks/useFirebaseLeave'
 import { QRCodeSVG } from 'qrcode.react'
@@ -272,12 +272,11 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 export default function EmployeeDashboard() {
   const navigate    = useNavigate()
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees } = useFirebaseEmployees()
+  const { employee: myEmployee } = useMyEmployee(currentUser?.email)
   const { requests: allLeave } = useFirebaseLeave()
   const [liveTime,   setLiveTime]   = useState(new Date())
   const [leaveModal, setLeaveModal] = useState(false)
 
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
   const rcId = myEmployee?.rotacloudId ? Number(myEmployee.rotacloudId) : null
 
   // RotaCloud clock state

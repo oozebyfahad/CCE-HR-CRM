@@ -8,7 +8,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 import { useCurrency } from '../../context/CurrencyContext'
 import { createNotification } from '../../components/common/NotificationBell'
 
@@ -40,9 +40,8 @@ function fmtDate(ts: { seconds: number } | null) {
 
 export default function MyOvertime() {
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees } = useFirebaseEmployees()
+  const { employee: myEmployee } = useMyEmployee(currentUser?.email)
   const { fmt } = useCurrency()
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
 
   const [requests, setRequests] = useState<OvertimeRequest[]>([])
   const [modal,    setModal]    = useState(false)
