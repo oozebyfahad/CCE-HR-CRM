@@ -128,6 +128,12 @@ service cloud.firestore {
       allow write:  if isTeamLead();
     }
 
+    // ── Call recordings (written by webhook via Admin SDK) ───────────
+    match /call_recordings/{id} {
+      allow read:  if isHR();
+      allow write: if false; // Admin SDK bypasses rules — no client writes
+    }
+
     // ── Organizations (multi-org RotaCloud keys) ───────────────────────
     match /organizations/{id} {
       allow read:   if isAdmin();
