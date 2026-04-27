@@ -731,12 +731,14 @@ interface MatchResult {
 
 function RotacloudPanel() {
   const { employees } = useFirebaseEmployees()
-  const [status,    setStatus]    = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
-  const [syncing,   setSyncing]   = useState(false)
-  const [results,   setResults]   = useState<MatchResult[] | null>(null)
-  const [saving,    setSaving]    = useState(false)
-  const [saved,     setSaved]     = useState(false)
-  const [errorMsg,  setErrorMsg]  = useState('')
+  const [status,       setStatus]       = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
+  const [syncing,      setSyncing]      = useState(false)
+  const [results,      setResults]      = useState<MatchResult[] | null>(null)
+  const [saving,       setSaving]       = useState(false)
+  const [saved,        setSaved]        = useState(false)
+  const [relinking,    setRelinking]    = useState(false)
+  const [relinkResult, setRelinkResult] = useState<{ linked: number; unmatched: number } | null>(null)
+  const [errorMsg,     setErrorMsg]     = useState('')
 
   const testConnection = async () => {
     setStatus('testing')
@@ -801,6 +803,32 @@ function RotacloudPanel() {
     }
   }
 
+  const relinkAll = async () => {
+    setRelinking(true)
+    setRelinkResult(null)
+    setErrorMsg('')
+    try {
+      const rotaUsers = await fetchRotaUsers()
+      const active = rotaUsers.filter(u => !u.deleted)
+      const emailToFirestore: Record<string, string> = {}
+      employees.forEach(e => { if (e.email) emailToFirestore[e.email.toLowerCase().trim()] = e.id })
+
+      const toLink = active
+        .map(ru => ({ firestoreId: emailToFirestore[ru.email?.toLowerCase().trim() ?? ''] ?? null, rotaId: ru.id }))
+        .filter(r => r.firestoreId !== null)
+
+      const batch = writeBatch(db)
+      toLink.forEach(r => batch.update(doc(db, 'employees', r.firestoreId!), { rotacloudId: r.rotaId }))
+      await batch.commit()
+
+      setRelinkResult({ linked: toLink.length, unmatched: active.length - toLink.length })
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : 'Relink failed')
+    } finally {
+      setRelinking(false)
+    }
+  }
+
   const linked   = results?.filter(r => r.firestoreId).length ?? 0
   const unlinked = results?.filter(r => !r.firestoreId).length ?? 0
 
@@ -851,21 +879,42 @@ function RotacloudPanel() {
 
       {/* Employee linking */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-secondary">Employee Linking</p>
             <p className="text-xs text-gray-400 mt-0.5">
               Matches RotaCloud employees to your HR records by email so attendance data maps to the correct employee.
             </p>
           </div>
-          <button
-            onClick={syncEmployees}
-            disabled={syncing}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-secondary text-white text-xs font-semibold hover:bg-secondary/90 transition disabled:opacity-50">
-            <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
-            {syncing ? 'Fetching…' : 'Fetch & Match'}
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={relinkAll}
+              disabled={relinking || syncing}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition disabled:opacity-50">
+              <RefreshCw size={13} className={relinking ? 'animate-spin' : ''} />
+              {relinking ? 'Relinking…' : 'Relink All'}
+            </button>
+            <button
+              onClick={syncEmployees}
+              disabled={syncing || relinking}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-secondary text-white text-xs font-semibold hover:bg-secondary/90 transition disabled:opacity-50">
+              <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
+              {syncing ? 'Fetching…' : 'Fetch & Match'}
+            </button>
+          </div>
         </div>
+
+        {/* Relink result banner */}
+        {relinkResult && (
+          <div className="flex items-center gap-3 px-4 py-3 bg-green-50 border border-green-200 rounded-xl">
+            <CheckCircle2 size={15} className="text-green-600 shrink-0" />
+            <p className="text-xs text-green-800 font-semibold">
+              Relinked {relinkResult.linked} employee{relinkResult.linked !== 1 ? 's' : ''} successfully.
+              {relinkResult.unmatched > 0 && <span className="font-normal text-green-700"> {relinkResult.unmatched} unmatched (email not found in HR records).</span>}
+            </p>
+          </div>
+        )}
+        {errorMsg && !results && <p className="text-xs text-red-500">{errorMsg}</p>}
 
         {results && (
           <>
@@ -916,8 +965,6 @@ function RotacloudPanel() {
                 </tbody>
               </table>
             </div>
-
-            {errorMsg && <p className="text-xs text-red-500">{errorMsg}</p>}
 
             <div className="flex items-center justify-between">
               <p className="text-xs text-gray-400">
