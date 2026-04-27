@@ -74,29 +74,37 @@ export default async function handler(req, res) {
         return { ok: true, data }
       }
 
+      // Always try token-only first to confirm the endpoint returns any data at all
+      let tokenOnlyResult = null
+      try {
+        const r0 = await fetch(`${BASE}/callRecordingListV1.php`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body:    new URLSearchParams({ token: TOKEN }).toString(),
+        })
+        const t0 = await r0.text()
+        if (r0.status === 200) {
+          const parsed = parseCsv(t0)
+          tokenOnlyResult = parsed
+          // If no dates requested, return all recordings
+          if (!from && !to) return res.json({ ...parsed, note: `token-only: ${parsed.data?.length ?? 0} total recordings` })
+        }
+      } catch {}
+
       if (!from && !to) {
-        // No dates — try token-only first (may return all recordings)
-        try {
-          const r = await fetch(`${BASE}/callRecordingListV1.php`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body:    new URLSearchParams({ token: TOKEN }).toString(),
-          })
-          const text = await r.text()
-          if (r.status === 200) return res.json(parseCsv(text))
-        } catch {}
         return res.json({ ok: false, data: [], message: 'SELECT_DATES' })
       }
 
-      // Build all format + param-name combinations to try
+      // Try all format + param-name combos — keep going past 200s with 0 rows
+      // (server may accept a wrong format and return empty)
       const attempts = []
       const fmts = [
-        from,
-        `${from} 00:00:00`,
-        from.split('-').reverse().join('/'),
-        from.split('-').reverse().join('-'),
-        from.replace(/-/g, '/'),
-        String(Math.floor(new Date(from).getTime() / 1000)),
+        from,                                         // YYYY-MM-DD
+        `${from} 00:00:00`,                           // YYYY-MM-DD HH:MM:SS
+        from.split('-').reverse().join('/'),           // DD/MM/YYYY
+        from.split('-').reverse().join('-'),           // DD-MM-YYYY
+        from.replace(/-/g, '/'),                      // YYYY/MM/DD
+        String(Math.floor(new Date(from).getTime() / 1000)), // Unix timestamp
       ]
       const tFmts = [
         to,
@@ -123,15 +131,21 @@ export default async function handler(req, res) {
               body:    new URLSearchParams({ token: TOKEN, [sKey]: fmts[i], [eKey]: tFmts[i] }).toString(),
             })
             const text = await r.text()
-            attempts.push({ sKey, eKey, fmt: fmts[i], status: r.status, preview: text.slice(0, 80) })
-            if (r.status === 200) return res.json(parseCsv(text))
+            const lines = text.trim().split('\n').filter(Boolean)
+            const rows  = lines.length - 1  // minus header
+            attempts.push({ sKey, eKey, fmt: fmts[i], status: r.status, rows, preview: text.slice(0, 100) })
+
+            // Return on first 200 that has actual data rows
+            if (r.status === 200 && rows > 0) return res.json(parseCsv(text))
           } catch (err) {
             attempts.push({ sKey, eKey, fmt: fmts[i], error: String(err) })
           }
         }
       }
 
-      return res.json({ ok: false, data: [], attempts })
+      // No format returned data — report how many rows each 200 had + token-only count
+      const totalKnown = tokenOnlyResult?.data?.length ?? '?'
+      return res.json({ ok: false, data: [], totalKnown, attempts })
     }
 
     // Register the webhook
