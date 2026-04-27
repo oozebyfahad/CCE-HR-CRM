@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Bell, Search, ChevronDown, Check } from 'lucide-react'
-import { useAppSelector } from '../../store'
-import { mockNotifications } from '../../utils/mockData'
+import { Search, ChevronDown, Check, Building2, LogOut } from 'lucide-react'
+import { useAppSelector, useAppDispatch } from '../../store'
+import { logout } from '../../store/slices/authSlice'
+import { setCurrentOrg } from '../../store/slices/orgSlice'
+import { useFirebaseOrgs } from '../../hooks/useFirebaseOrgs'
+import NotificationBell from '../common/NotificationBell'
 import { cn } from '../../utils/cn'
 
 const PAGE_TITLES: Record<string, string> = {
@@ -24,18 +27,32 @@ function formatDate() {
 }
 
 export default function TopNav() {
-  const location   = useAppSelector(s => s.ui.sidebarCollapsed)
-  const notifCount = useAppSelector(s => s.ui.notificationCount)
+  const dispatch   = useAppDispatch()
   const user       = useAppSelector(s => s.auth.user)
+  const currentOrg = useAppSelector(s => s.org.currentOrg)
   const { pathname } = useLocation()
+  const { orgs }   = useFirebaseOrgs()
 
-  const [showNotifs, setShowNotifs] = useState(false)
-  const [showUser,   setShowUser]   = useState(false)
+  const [showUser,    setShowUser]    = useState(false)
+  const [showOrgList, setShowOrgList] = useState(false)
 
   const title    = PAGE_TITLES[pathname] ?? 'HR Management'
   const initials = user?.name
     ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
     : 'HR'
+
+  const isAdmin = user?.role === 'admin'
+
+  const handleSwitchOrg = (org: Parameters<typeof setCurrentOrg>[0]) => {
+    dispatch(setCurrentOrg(org))
+    setShowOrgList(false)
+    setShowUser(false)
+  }
+
+  const handleLogout = () => {
+    dispatch(logout())
+    setShowUser(false)
+  }
 
   return (
     <header className="h-16 bg-white border-b border-gray-100 flex items-center justify-between px-6 gap-4 sticky top-0 z-20 shadow-sm">
@@ -57,49 +74,12 @@ export default function TopNav() {
         </div>
 
         {/* Notifications */}
-        <div className="relative">
-          <button
-            onClick={() => { setShowNotifs(v => !v); setShowUser(false) }}
-            className="relative w-9 h-9 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center hover:bg-gray-100 transition-colors"
-          >
-            <Bell size={16} className="text-gray-500" />
-            {notifCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                {notifCount > 9 ? '9+' : notifCount}
-              </span>
-            )}
-          </button>
-
-          {showNotifs && (
-            <div className="absolute right-0 top-11 w-80 bg-white border border-gray-100 rounded-xl shadow-modal z-50">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                <span className="text-sm font-semibold text-secondary">Notifications</span>
-                <button className="text-xs text-primary hover:underline">Mark all read</button>
-              </div>
-              <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
-                {mockNotifications.map(n => (
-                  <div key={n.id} className={cn('px-4 py-3 flex gap-3', !n.read && 'bg-blue-50/40')}>
-                    <span className={cn('w-2 h-2 rounded-full mt-1.5 shrink-0',
-                      n.type === 'error'   ? 'bg-red-500'   :
-                      n.type === 'warning' ? 'bg-amber-500' :
-                      n.type === 'success' ? 'bg-green-500' : 'bg-blue-500'
-                    )} />
-                    <div>
-                      <p className="text-xs font-semibold text-secondary">{n.title}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{n.message}</p>
-                    </div>
-                    {n.read && <Check size={12} className="text-gray-300 shrink-0 ml-auto mt-1" />}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        <NotificationBell />
 
         {/* User */}
         <div className="relative">
           <button
-            onClick={() => { setShowUser(v => !v); setShowNotifs(false) }}
+            onClick={() => { setShowUser(v => !v); setShowOrgList(false) }}
             className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors"
           >
             <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center">
@@ -107,16 +87,94 @@ export default function TopNav() {
             </div>
             <div className="hidden sm:block text-left">
               <p className="text-xs font-semibold text-secondary leading-tight">{user?.name ?? 'HR Manager'}</p>
-              <p className="text-[10px] text-gray-400 leading-tight capitalize">{user?.role?.replace(/_/g, ' ') ?? 'Administrator'}</p>
+              <p className="text-[10px] text-gray-400 leading-tight capitalize">
+                {currentOrg ? currentOrg.name : 'CabCall Experts'}
+              </p>
             </div>
             <ChevronDown size={12} className="text-gray-400" />
           </button>
+
+          {showUser && (
+            <div className="absolute right-0 top-11 w-64 bg-white border border-gray-100 rounded-xl shadow-lg z-50 overflow-hidden">
+              {/* User header */}
+              <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+                <p className="text-xs font-bold text-secondary">{user?.name ?? 'HR Manager'}</p>
+                <p className="text-[11px] text-gray-400 capitalize mt-0.5">
+                  {user?.role?.replace(/_/g, ' ') ?? 'Administrator'}
+                </p>
+              </div>
+
+              {/* Org switcher (admin only) */}
+              {isAdmin && (
+                <div className="px-4 py-3 border-b border-gray-100">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Organization</p>
+
+                  {/* Current org display */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Building2 size={12} className="text-primary shrink-0" />
+                      <span className="text-xs font-semibold text-secondary truncate">
+                        {currentOrg?.name ?? 'CabCall Experts'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setShowOrgList(v => !v)}
+                      className="text-[10px] text-primary hover:underline font-semibold shrink-0"
+                    >
+                      {showOrgList ? 'Close' : 'Switch'}
+                    </button>
+                  </div>
+
+                  {/* Org list */}
+                  {showOrgList && (
+                    <div className="mt-2 space-y-0.5">
+                      <button
+                        onClick={() => handleSwitchOrg(null)}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors text-left',
+                          !currentOrg ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-50'
+                        )}
+                      >
+                        <Building2 size={11} className="shrink-0" />
+                        <span className="flex-1 truncate">CabCall Experts</span>
+                        {!currentOrg && <Check size={10} className="shrink-0" />}
+                      </button>
+
+                      {orgs.map(org => (
+                        <button
+                          key={org.id}
+                          onClick={() => handleSwitchOrg(org)}
+                          className={cn(
+                            'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors text-left',
+                            currentOrg?.id === org.id ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-50'
+                          )}
+                        >
+                          <Building2 size={11} className="shrink-0" />
+                          <span className="flex-1 truncate">{org.name}</span>
+                          {currentOrg?.id === org.id && <Check size={10} className="shrink-0" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Sign out */}
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-red-600 hover:bg-red-50 transition-colors font-semibold"
+              >
+                <LogOut size={13} />
+                Sign Out
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Backdrop */}
-      {(showNotifs || showUser) && (
-        <div className="fixed inset-0 z-40" onClick={() => { setShowNotifs(false); setShowUser(false) }} />
+      {showUser && (
+        <div className="fixed inset-0 z-40" onClick={() => { setShowUser(false); setShowOrgList(false) }} />
       )}
     </header>
   )

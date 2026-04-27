@@ -434,7 +434,7 @@ function RotacloudImportModal({
               <div>
                 <p className="text-sm font-semibold text-red-700">Failed to fetch</p>
                 <p className="text-xs text-red-600 mt-0.5">{error}</p>
-                <p className="text-xs text-gray-500 mt-1">Make sure <code className="bg-gray-100 px-1 rounded">ROTACLOUD_API_KEY</code> is set in Netlify environment variables.</p>
+                <p className="text-xs text-gray-500 mt-1">Make sure <code className="bg-gray-100 px-1 rounded">ROTACLOUD_API_KEY</code> is set in Vercel environment variables.</p>
               </div>
             </div>
           )}
