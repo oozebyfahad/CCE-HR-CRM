@@ -283,12 +283,51 @@ export default function Performance() {
   const [appliedToDate,    setAppliedToDate]    = useState('')
   const [apiRecordings,    setApiRecordings]    = useState<CallRecording[]>([])
   const [apiSearching,     setApiSearching]     = useState(false)
+  const [probeMsg,         setProbeMsg]         = useState('')
   const [voipStatus,       setVoipStatus]       = useState<{ checking: boolean; webhooks: {url:string;token:string}[]; checked: boolean; error?: string }>({ checking: false, webhooks: [], checked: false })
   const [registering,      setRegistering]      = useState(false)
 
-  const applySearch = () => {
+  const applySearch = async () => {
     setAppliedFromDate(recFromDate)
     setAppliedToDate(recToDate)
+    if (!recFromDate && !recToDate) return
+    setApiSearching(true)
+    setProbeMsg('')
+    try {
+      const r = await fetch('/api/voip', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ action: 'probe', from: recFromDate, to: recToDate }),
+      })
+      const json = await r.json()
+      if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
+        const normalised: CallRecording[] = json.data.map((x: Record<string, unknown>) => ({
+          id:          String(x.id ?? x.callRecordingId ?? Math.random()),
+          callID:      String(x.callID ?? x.call_id ?? ''),
+          duration:    Number(x.duration ?? 0),
+          durationFmt: (() => { const s = Number(x.duration ?? 0); return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}` })(),
+          datetime:    String(x.datetime ?? x.date ?? ''),
+          source:      String(x.source ?? x.from ?? ''),
+          destination: String(x.destination ?? x.to ?? ''),
+          isProtected: Boolean(x.isProtected ?? x.is_protected ?? false),
+          filename:    String(x.filename ?? ''),
+          url:         String(x.url ?? ''),
+        }))
+        setApiRecordings(normalised)
+        setProbeMsg(`Found ${normalised.length} recordings via API`)
+      } else {
+        // Show what each endpoint returned so we can diagnose
+        const summary = (json.results ?? [])
+          .map((r: {ep: string; status?: number; preview?: string; error?: string}) =>
+            `${r.ep}: ${r.status ?? 'ERR'} — ${(r.preview ?? r.error ?? '').slice(0, 60)}`)
+          .join('\n')
+        setProbeMsg(summary || 'No list endpoint found on VoIP server. Recordings only arrive via webhook after each call.')
+      }
+    } catch {
+      setProbeMsg('Could not reach VoIP proxy.')
+    } finally {
+      setApiSearching(false)
+    }
   }
 
   const checkVoipStatus = async () => {
@@ -843,7 +882,7 @@ export default function Performance() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => { setRecSource(''); setRecDest(''); setRecFromDate(''); setRecToDate(''); setRecAgent('All Agents'); setAppliedFromDate(''); setAppliedToDate(''); setApiRecordings([]) }}
+                  onClick={() => { setRecSource(''); setRecDest(''); setRecFromDate(''); setRecToDate(''); setRecAgent('All Agents'); setAppliedFromDate(''); setAppliedToDate(''); setApiRecordings([]); setProbeMsg('') }}
                   className="flex items-center justify-center gap-2 border border-gray-200 text-gray-500 hover:text-secondary px-4 py-2 rounded-lg text-sm font-medium transition-colors">
                   <X size={13} /> Clear
                 </button>
@@ -857,6 +896,14 @@ export default function Performance() {
               </div>
             </div>
           </div>
+
+          {/* Probe result */}
+          {probeMsg && (
+            <div className="card p-3 bg-gray-50 border border-gray-200">
+              <p className="text-[10px] font-semibold text-gray-500 mb-1">VoIP API response:</p>
+              <pre className="text-[10px] text-gray-600 whitespace-pre-wrap font-mono">{probeMsg}</pre>
+            </div>
+          )}
 
           {/* Table */}
           <div className="card overflow-hidden">

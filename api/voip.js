@@ -43,6 +43,51 @@ export default async function handler(req, res) {
       }
     }
 
+    // Probe for undocumented list endpoints
+    if (action === 'probe') {
+      const { from, to } = req.body ?? {}
+      const candidates = [
+        'callRecordingGetListV1.php',
+        'callRecordingsGetV1.php',
+        'callRecordingListV1.php',
+        'getCallRecordingsV1.php',
+        'callRecordingSearchV1.php',
+        'callRecordingsV1.php',
+        'getRecordingsV1.php',
+        'recordingsV1.php',
+        'callRecordingGetAllV1.php',
+        'cdrV1.php',
+        'callsV1.php',
+      ]
+      const results = []
+      for (const ep of candidates) {
+        try {
+          const body = new URLSearchParams({ token: TOKEN })
+          if (from) body.append('from', from)
+          if (to)   body.append('to',   to)
+          const r = await fetch(`${BASE}/${ep}`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body:    body.toString(),
+          })
+          const text = await r.text()
+          results.push({ ep, status: r.status, preview: text.slice(0, 120) })
+          // If it looks like JSON data (not an error), parse and return immediately
+          if (r.status === 200 && text.trim().startsWith('[')) {
+            try {
+              const data = JSON.parse(text)
+              if (Array.isArray(data) && data.length > 0) {
+                return res.json({ ok: true, found: ep, data, results })
+              }
+            } catch {}
+          }
+        } catch (err) {
+          results.push({ ep, error: String(err) })
+        }
+      }
+      return res.json({ ok: false, data: [], results })
+    }
+
     // Register the webhook
     if (action === 'register') {
       if (!webhookUrl || !customerToken) {
