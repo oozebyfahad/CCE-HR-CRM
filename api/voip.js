@@ -43,23 +43,18 @@ export default async function handler(req, res) {
       }
     }
 
-    // Fetch historical recordings via confirmed endpoint callRecordingListV1.php
+    // Fetch historical recordings from callRecordingListV1.php (returns CSV)
     if (action === 'probe') {
       const { from, to } = req.body ?? {}
 
-      // The endpoint uses startDate/endDate — try a few date formats the server might expect
+      // Try date formats until server accepts one
       const formats = [
-        // YYYY-MM-DD (ISO)
-        { startDate: from, endDate: to },
-        // YYYY-MM-DD HH:MM:SS
-        { startDate: from ? `${from} 00:00:00` : '', endDate: to ? `${to} 23:59:59` : '' },
-        // DD-MM-YYYY
+        { startDate: from,                                      endDate: to                                     },
+        { startDate: from ? `${from} 00:00:00` : '',           endDate: to ? `${to} 23:59:59` : ''             },
         { startDate: from ? from.split('-').reverse().join('-') : '', endDate: to ? to.split('-').reverse().join('-') : '' },
-        // DD/MM/YYYY
         { startDate: from ? from.split('-').reverse().join('/') : '', endDate: to ? to.split('-').reverse().join('/') : '' },
       ]
 
-      const results = []
       for (const params of formats) {
         try {
           const body = new URLSearchParams({ token: TOKEN, ...params })
@@ -69,23 +64,45 @@ export default async function handler(req, res) {
             body:    body.toString(),
           })
           const text = await r.text()
-          results.push({ params, status: r.status, preview: text.slice(0, 200) })
 
-          if (r.status === 200) {
-            try {
-              const data = JSON.parse(text)
-              const arr = Array.isArray(data) ? data : (data.recordings ?? data.data ?? [])
-              return res.json({ ok: true, data: arr, results })
-            } catch {
-              // 200 but not JSON — return raw so we can see it
-              return res.json({ ok: false, data: [], results })
-            }
+          if (r.status !== 200) continue
+
+          // Parse CSV — header row + data rows
+          const lines = text.trim().split('\n').filter(Boolean)
+          if (lines.length < 2) {
+            // Header only — no recordings in range
+            return res.json({ ok: true, data: [], message: 'No recordings found in this date range' })
           }
+
+          const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+          const data = lines.slice(1).map(line => {
+            const cols = line.split(',').map(c => c.trim())
+            const row = {}
+            headers.forEach((h, i) => { row[h] = cols[i] ?? '' })
+
+            const dur = parseInt(row.duration ?? '0') || 0
+            const id  = row.id ?? ''
+            return {
+              id,
+              callID:      '',
+              duration:    dur,
+              durationFmt: `${String(Math.floor(dur / 60)).padStart(2, '0')}:${String(dur % 60).padStart(2, '0')}`,
+              datetime:    row.datetime ?? '',
+              source:      row.source ?? '',
+              destination: row.destination ?? '',
+              isProtected: false,
+              filename:    row.filename ?? '',
+              url:         `${BASE}/callRecordingGetV1.php?callRecordingId=${encodeURIComponent(id)}`,
+            }
+          })
+
+          return res.json({ ok: true, data })
         } catch (err) {
-          results.push({ params, error: String(err) })
+          // try next format
+          console.error('Format attempt failed:', err)
         }
       }
-      return res.json({ ok: false, data: [], results })
+      return res.json({ ok: false, data: [], message: 'All date formats rejected by VoIP server' })
     }
 
     // Register the webhook
