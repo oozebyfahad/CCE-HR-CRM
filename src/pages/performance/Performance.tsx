@@ -276,16 +276,23 @@ export default function Performance() {
   const [recSource,   setRecSource]   = useState('')
   const [recDest,     setRecDest]     = useState('')
   const [recAgent,    setRecAgent]    = useState('All Agents')
-  const [recSelected, setRecSelected] = useState<string[]>([])
-  const [recSearch,   setRecSearch]   = useState('')
-  const [playingId,   setPlayingId]   = useState<string | null>(null)
+  const [recSelected,      setRecSelected]      = useState<string[]>([])
+  const [recSearch,        setRecSearch]        = useState('')
+  const [playingId,        setPlayingId]        = useState<string | null>(null)
+  const [appliedFromDate,  setAppliedFromDate]  = useState('')
+  const [appliedToDate,    setAppliedToDate]    = useState('')
+
+  const applySearch = () => {
+    setAppliedFromDate(recFromDate)
+    setAppliedToDate(recToDate)
+  }
 
   const recordings = liveRecordings.filter(r => {
-    if (recSearch  && !r.source.includes(recSearch)  && !r.destination.includes(recSearch)) return false
-    if (recSource  && !r.source.includes(recSource))      return false
-    if (recDest    && !r.destination.includes(recDest))   return false
-    if (recFromDate && r.datetime.slice(0, 10) < recFromDate) return false
-    if (recToDate   && r.datetime.slice(0, 10) > recToDate)   return false
+    if (recSearch       && !r.source.includes(recSearch)       && !r.destination.includes(recSearch)) return false
+    if (recSource       && !r.source.includes(recSource))      return false
+    if (recDest         && !r.destination.includes(recDest))   return false
+    if (appliedFromDate && r.datetime.slice(0, 10) < appliedFromDate) return false
+    if (appliedToDate   && r.datetime.slice(0, 10) > appliedToDate)   return false
     return true
   })
   const toggleRec = (id: string) =>
@@ -749,11 +756,18 @@ export default function Performance() {
                   {AGENTS.map(a=><option key={a}>{a}</option>)}
                 </select>
               </div>
-              <button
-                onClick={() => { setRecSource(''); setRecDest(''); setRecFromDate(''); setRecToDate(''); setRecAgent('All Agents') }}
-                className="flex items-center justify-center gap-2 border border-gray-200 text-gray-500 hover:text-secondary px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                <X size={13} /> Clear
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setRecSource(''); setRecDest(''); setRecFromDate(''); setRecToDate(''); setRecAgent('All Agents'); setAppliedFromDate(''); setAppliedToDate('') }}
+                  className="flex items-center justify-center gap-2 border border-gray-200 text-gray-500 hover:text-secondary px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                  <X size={13} /> Clear
+                </button>
+                <button
+                  onClick={applySearch}
+                  className="flex items-center justify-center gap-2 bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
+                  <Search size={13} /> Search
+                </button>
+              </div>
             </div>
           </div>
 
