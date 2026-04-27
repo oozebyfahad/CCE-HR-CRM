@@ -3,7 +3,7 @@ import { CalendarDays, Plus, CheckCircle2, X, RefreshCw, TrendingDown } from 'lu
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 import {
   fetchRotaLeaveTypes, fetchRotaLeave,
   type RotaLeaveType, type RotaLeave,
@@ -147,11 +147,10 @@ function ApplyModal({ name, employeeId, onClose }: { name: string; employeeId: s
 // ── Main page ─────────────────────────────────────────────────────────
 export default function MyLeave() {
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees } = useFirebaseEmployees()
+  const { employee: myEmployee } = useMyEmployee(currentUser?.email)
   const [modal,  setModal]  = useState(false)
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'declined'>('all')
 
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
   const rcId       = myEmployee?.rotacloudId ? Number(myEmployee.rotacloudId) : null
 
   const [rcLeaveTypes, setRcLeaveTypes] = useState<RotaLeaveType[]>([])

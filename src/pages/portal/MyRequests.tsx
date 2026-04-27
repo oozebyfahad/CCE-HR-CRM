@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { FileText, CalendarDays, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 import { useFirebaseLeave } from '../../hooks/useFirebaseLeave'
 
 const LEAVE_TYPE_LABELS: Record<string, string> = {
@@ -32,11 +32,10 @@ type FilterType = 'all' | 'pending' | 'approved' | 'declined'
 
 export default function MyRequests() {
   const currentUser   = useAppSelector(s => s.auth.user)
-  const { employees } = useFirebaseEmployees()
+  const { employee: myEmployee } = useMyEmployee(currentUser?.email)
   const { requests: allLeave } = useFirebaseLeave()
   const [filter, setFilter] = useState<FilterType>('all')
 
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
   const myLeave    = allLeave.filter(r => r.employeeId === myEmployee?.id)
 
   const requests = myLeave.map(lr => ({

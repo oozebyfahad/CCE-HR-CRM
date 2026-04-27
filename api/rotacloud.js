@@ -9,12 +9,13 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' })
   }
 
-  const API_KEY = process.env.ROTACLOUD_API_KEY
-  if (!API_KEY) {
-    return res.status(500).json({ error: 'ROTACLOUD_API_KEY is not set in Vercel environment variables.' })
-  }
+  // Allow callers to pass a per-org API key; fall back to the Vercel env var
+  const { path, params = {}, paginate = false, method = 'GET', data = null, apiKey } = req.body
+  const API_KEY = apiKey || process.env.ROTACLOUD_API_KEY
 
-  const { path, params = {}, paginate = false, method = 'GET', data = null } = req.body
+  if (!API_KEY) {
+    return res.status(500).json({ error: 'No RotaCloud API key available. Set ROTACLOUD_API_KEY in Vercel environment variables or pass apiKey in the request body.' })
+  }
 
   if (!path || typeof path !== 'string') {
     return res.status(400).json({ error: 'Missing "path" field' })

@@ -4,7 +4,7 @@ import {
   CheckCircle2, AlertCircle, TrendingUp, Timer, CalendarDays, Zap,
 } from 'lucide-react'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
 import {
   fetchRotaAttendance, fetchRotaShifts, monthToUnix,
   type RotaAttendance, type RotaShift,
@@ -139,8 +139,7 @@ function StatusPill({ status, approved }: { status: DayStatus; approved?: boolea
 // ── Main component ─────────────────────────────────────────────────────
 export default function MyTime() {
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees, loading: empLoading } = useFirebaseEmployees()
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
+  const { employee: myEmployee, loading: empLoading } = useMyEmployee(currentUser?.email)
   const rcId = myEmployee?.rotacloudId ? Number(myEmployee.rotacloudId) : null
   const todayStr = toYMD(new Date())
 

@@ -3,12 +3,14 @@ import { useDispatch, useSelector, type TypedUseSelectorHook } from 'react-redux
 import authReducer     from './slices/authSlice'
 import employeeReducer from './slices/employeeSlice'
 import uiReducer       from './slices/uiSlice'
+import orgReducer      from './slices/orgSlice'
 
 export const store = configureStore({
   reducer: {
     auth:      authReducer,
     employees: employeeReducer,
     ui:        uiReducer,
+    org:       orgReducer,
   },
 })
 

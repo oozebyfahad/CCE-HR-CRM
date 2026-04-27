@@ -1,7 +1,18 @@
-// RotaCloud API service — all calls go via the Netlify proxy function.
-// The API key never reaches the browser.
+// RotaCloud API service — all calls go via the Vercel serverless proxy (api/rotacloud.js).
+// The API key never reaches the browser (only admins can read org keys from Firestore).
 
 const PROXY = '/api/rotacloud'
+
+function getActiveApiKey(): string | undefined {
+  try {
+    const stored = localStorage.getItem('cce_hr_org')
+    if (!stored) return undefined
+    const org = JSON.parse(stored)
+    return org?.rotaApiKey || undefined
+  } catch {
+    return undefined
+  }
+}
 
 async function rotaWrite<T>(
   method: 'POST' | 'PATCH' | 'DELETE',
@@ -11,7 +22,7 @@ async function rotaWrite<T>(
   const res = await fetch(PROXY, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, method, data }),
+    body: JSON.stringify({ path, method, data, apiKey: getActiveApiKey() }),
   })
   const json = await res.json()
   if (!res.ok) throw new Error(json.error ?? `RotaCloud error ${res.status}`)
@@ -27,7 +38,7 @@ async function rotaCall<T>(
   const res = await fetch(PROXY, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, params, paginate }),
+    body: JSON.stringify({ path, params, paginate, apiKey: getActiveApiKey() }),
   })
   const json = await res.json()
   if (!res.ok) {

@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   User, Briefcase, Shield, Edit3, Save, X,
-  Camera, Upload, AlertTriangle, CheckCircle2, FileText,
+  Camera, Upload, AlertTriangle, CheckCircle2, FileText, RefreshCw, Link, Unlink,
 } from 'lucide-react'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { doc, updateDoc } from 'firebase/firestore'
 import { useAppSelector } from '../../store'
-import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
-import { storage } from '../../config/firebase'
+import { useMyEmployee } from '../../hooks/useMyEmployee'
+import { storage, db } from '../../config/firebase'
+import { fetchRotaUsers } from '../../services/rotacloud'
 
 const inp = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-white text-gray-800'
 
@@ -43,8 +45,7 @@ function resizeImage(file: File, maxPx = 200): Promise<string> {
 
 export default function MyProfile() {
   const currentUser = useAppSelector(s => s.auth.user)
-  const { employees, loading, updateEmployee } = useFirebaseEmployees()
-  const myEmployee = employees.find(e => e.email === currentUser?.email)
+  const { employee: myEmployee, loading, updateEmployee } = useMyEmployee(currentUser?.email)
 
   const photoInputRef = useRef<HTMLInputElement>(null)
   const certInputRef  = useRef<HTMLInputElement>(null)
@@ -53,6 +54,8 @@ export default function MyProfile() {
   const [saving,        setSaving]        = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [uploadingCert,  setUploadingCert]  = useState(false)
+  const [relinking,     setRelinking]     = useState(false)
+  const [relinkStatus,  setRelinkStatus]  = useState<'idle' | 'ok' | 'notfound' | 'error'>('idle')
   const [form, setForm] = useState({ phone: '', currentAddress: '', permanentAddress: '' })
 
   useEffect(() => {
@@ -70,6 +73,23 @@ export default function MyProfile() {
       await updateEmployee(myEmployee.id, form)
       setEditing(false)
     } finally { setSaving(false) }
+  }
+
+  const relinkRotaCloud = async () => {
+    if (!myEmployee) return
+    setRelinking(true)
+    setRelinkStatus('idle')
+    try {
+      const users = await fetchRotaUsers()
+      const match = users.find(u => u.email?.toLowerCase().trim() === myEmployee.email?.toLowerCase().trim())
+      if (!match) { setRelinkStatus('notfound'); return }
+      await updateDoc(doc(db, 'employees', myEmployee.id), { rotacloudId: match.id })
+      setRelinkStatus('ok')
+    } catch {
+      setRelinkStatus('error')
+    } finally {
+      setRelinking(false)
+    }
   }
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -430,6 +450,59 @@ export default function MyProfile() {
               <p className="text-[10px] text-gray-400 mt-3 text-center">
                 Certificate is valid for 6 months from upload date.
               </p>
+            </div>
+
+            {/* RotaCloud connection */}
+            <div className="card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <RefreshCw size={15} className="text-primary" />
+                  <p className="text-sm font-bold text-secondary">RotaCloud Connection</p>
+                </div>
+                {myEmployee.rotacloudId ? (
+                  <span className="flex items-center gap-1 text-[11px] font-bold text-green-700 bg-green-50 px-2.5 py-0.5 rounded-full border border-green-200">
+                    <Link size={10} /> Connected
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
+                    <Unlink size={10} /> Not linked
+                  </span>
+                )}
+              </div>
+
+              <p className="text-xs text-gray-400 mb-4">
+                {myEmployee.rotacloudId
+                  ? 'Your account is linked to RotaCloud. Your attendance, shifts, and leave data are synced automatically.'
+                  : 'Your account is not linked to RotaCloud. Attendance and shift data may not appear. Click below to reconnect.'}
+              </p>
+
+              {relinkStatus === 'ok' && (
+                <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+                  <CheckCircle2 size={13} className="text-green-600 shrink-0" />
+                  <p className="text-xs text-green-800 font-semibold">Reconnected successfully!</p>
+                </div>
+              )}
+              {relinkStatus === 'notfound' && (
+                <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                  <AlertTriangle size={13} className="text-amber-600 shrink-0" />
+                  <p className="text-xs text-amber-800">No RotaCloud account found matching your email. Contact HR.</p>
+                </div>
+              )}
+              {relinkStatus === 'error' && (
+                <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+                  <AlertTriangle size={13} className="text-red-500 shrink-0" />
+                  <p className="text-xs text-red-700">Reconnect failed. Please try again or contact HR.</p>
+                </div>
+              )}
+
+              <button
+                onClick={relinkRotaCloud}
+                disabled={relinking}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-secondary text-white text-xs font-semibold hover:bg-secondary/90 transition disabled:opacity-50"
+              >
+                <RefreshCw size={13} className={relinking ? 'animate-spin' : ''} />
+                {relinking ? 'Reconnecting…' : 'Reconnect with RotaCloud'}
+              </button>
             </div>
           </div>
         </div>

@@ -18,9 +18,14 @@ service cloud.firestore {
 
     // ── Employees ────────────────────────────────────────────────────
     match /employees/{id} {
-      allow read:   if isTeamLead();
+      allow read:   if isTeamLead()
+                    || (isAuth() && request.auth.token.email == resource.data.email);
       allow create: if isHR();
-      allow update: if isHR();
+      // HR can update anything; employees can update only their own rotacloudId
+      allow update: if isHR()
+                    || (isAuth()
+                        && request.auth.token.email == resource.data.email
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rotacloudId']));
       allow delete: if isAdmin();
     }
 
@@ -123,10 +128,24 @@ service cloud.firestore {
       allow write:  if isTeamLead();
     }
 
-    // ── Call recordings (written by Netlify webhook via Admin SDK) ────
+    // ── Call recordings (written by webhook via Admin SDK) ───────────
     match /call_recordings/{id} {
       allow read:  if isHR();
       allow write: if false; // Admin SDK bypasses rules — no client writes
+    }
+
+    // ── Organizations (multi-org RotaCloud keys) ───────────────────────
+    match /organizations/{id} {
+      allow read:   if isAdmin();
+      allow write:  if isAdmin();
+    }
+
+    // ── Notifications ─────────────────────────────────────────────────
+    match /notifications/{id} {
+      allow read:   if isAuth() && (resource.data.userId == request.auth.token.email || isHR());
+      allow create: if isHR();
+      allow update: if isAuth() && resource.data.userId == request.auth.token.email;
+      allow delete: if isAdmin();
     }
   }
 }

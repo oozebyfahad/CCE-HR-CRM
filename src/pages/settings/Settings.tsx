@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { Save, Shield, Bell, Palette, Globe, Database, Users, Pencil, X, Send, Check, UserPlus, Eye, EyeOff, Building2, Link, RefreshCw, CheckCircle2, AlertCircle, Unlink, Trash2 } from 'lucide-react'
-import { doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
+import { Save, Shield, Bell, Palette, Globe, Database, Users, Pencil, X, Send, Check, UserPlus, Eye, EyeOff, Building2, Link, RefreshCw, CheckCircle2, AlertCircle, Unlink, Trash2, Plus } from 'lucide-react'
+import { doc, setDoc, writeBatch } from 'firebase/firestore'
 import { fetchRotaUsers, rotaUserName, type RotaUser } from '../../services/rotacloud'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
+import { useFirebaseOrgs } from '../../hooks/useFirebaseOrgs'
 import { createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth'
 import { auth, authSecondary, db } from '../../config/firebase'
-import { useAppSelector } from '../../store'
+import { useAppSelector, useAppDispatch } from '../../store'
+import { setCurrentOrg, type Org } from '../../store/slices/orgSlice'
 import { useFirebaseUsers, type FirebaseUser } from '../../hooks/useFirebaseUsers'
 import { cn } from '../../utils/cn'
 import type { UserRole } from '../../types'
@@ -534,6 +536,191 @@ function AccessLevels() {
   )
 }
 
+// ── Organizations panel ─────────────────────────────────────────────────
+function OrganizationsPanel() {
+  const dispatch   = useAppDispatch()
+  const currentOrg = useAppSelector(s => s.org.currentOrg)
+  const { orgs, loading, addOrg, updateOrg, deleteOrg } = useFirebaseOrgs()
+
+  const [showModal, setShowModal] = useState(false)
+  const [editing,   setEditing]   = useState<Org | null>(null)
+  const [name,      setName]      = useState('')
+  const [apiKey,    setApiKey]    = useState('')
+  const [showKey,   setShowKey]   = useState(false)
+  const [saving,    setSaving]    = useState(false)
+
+  const openAdd = () => {
+    setEditing(null); setName(''); setApiKey(''); setShowKey(false); setShowModal(true)
+  }
+
+  const openEdit = (org: Org) => {
+    setEditing(org); setName(org.name); setApiKey(org.rotaApiKey); setShowKey(false); setShowModal(true)
+  }
+
+  const handleSave = async () => {
+    if (!name.trim() || !apiKey.trim()) return
+    setSaving(true)
+    try {
+      if (editing) {
+        await updateOrg(editing.id, { name: name.trim(), rotaApiKey: apiKey.trim() })
+        if (currentOrg?.id === editing.id) {
+          dispatch(setCurrentOrg({ ...editing, name: name.trim(), rotaApiKey: apiKey.trim() }))
+        }
+      } else {
+        await addOrg(name.trim(), apiKey.trim())
+      }
+      setShowModal(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async (org: Org) => {
+    if (!confirm(`Delete organization "${org.name}"? This cannot be undone.`)) return
+    await deleteOrg(org.id)
+    if (currentOrg?.id === org.id) dispatch(setCurrentOrg(null))
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-secondary">Organizations</h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Add additional organizations with their own RotaCloud accounts.
+            Switch between them from the top-right menu.
+          </p>
+        </div>
+        <button
+          onClick={openAdd}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition"
+        >
+          <Plus size={13} /> Add Organization
+        </button>
+      </div>
+
+      {/* Default org */}
+      <div className={cn(
+        'flex items-center gap-3 p-3 rounded-xl border',
+        !currentOrg ? 'border-primary/30 bg-primary/5' : 'border-gray-100 bg-gray-50'
+      )}>
+        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+          <Building2 size={15} className="text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-secondary">CabCall Experts</p>
+          <p className="text-[11px] text-gray-400">Default · API key in Vercel environment variables</p>
+        </div>
+        {!currentOrg
+          ? <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full font-semibold shrink-0">Active</span>
+          : <button onClick={() => dispatch(setCurrentOrg(null))} className="text-[10px] text-primary hover:underline font-semibold shrink-0">Switch to this</button>
+        }
+      </div>
+
+      {/* Additional orgs */}
+      {loading ? (
+        <div className="text-xs text-gray-400 text-center py-4">Loading…</div>
+      ) : orgs.length === 0 ? (
+        <p className="text-xs text-gray-400 text-center py-3">No additional organizations yet.</p>
+      ) : (
+        orgs.map(org => (
+          <div key={org.id} className={cn(
+            'flex items-center gap-3 p-3 rounded-xl border',
+            currentOrg?.id === org.id ? 'border-primary/30 bg-primary/5' : 'border-gray-100 bg-gray-50'
+          )}>
+            <div className="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0">
+              <Building2 size={15} className="text-secondary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-secondary">{org.name}</p>
+              <p className="text-[11px] text-gray-400 font-mono truncate">
+                {'•'.repeat(Math.min(org.rotaApiKey.length, 28))}
+              </p>
+            </div>
+            {currentOrg?.id === org.id
+              ? <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full font-semibold shrink-0">Active</span>
+              : <button onClick={() => dispatch(setCurrentOrg(org))} className="text-[10px] text-primary hover:underline font-semibold shrink-0">Switch to this</button>
+            }
+            <div className="flex items-center gap-1 shrink-0">
+              <button onClick={() => openEdit(org)} className="p-1 rounded hover:bg-gray-200 text-gray-400 transition">
+                <Pencil size={12} />
+              </button>
+              <button onClick={() => handleDelete(org)} className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition">
+                <Trash2 size={12} />
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+
+      {/* Add / Edit modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-secondary">
+                {editing ? 'Edit Organization' : 'Add Organization'}
+              </h3>
+              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div>
+              <label className="label">Organization Name</label>
+              <input
+                className="input"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="e.g. Acme Corp"
+              />
+            </div>
+
+            <div>
+              <label className="label">RotaCloud API Key</label>
+              <div className="relative">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  className="input pr-9"
+                  value={apiKey}
+                  onChange={e => setApiKey(e.target.value)}
+                  placeholder="rc_live_…"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(v => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">
+                Stored in Firestore and accessible only to admins.
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowModal(false)}
+                className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving || !name.trim() || !apiKey.trim()}
+                className="flex-1 px-4 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition disabled:opacity-50"
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── RotaCloud Integration panel ─────────────────────────────────────────
 interface MatchResult {
   rotaUser: RotaUser
@@ -544,12 +731,14 @@ interface MatchResult {
 
 function RotacloudPanel() {
   const { employees } = useFirebaseEmployees()
-  const [status,    setStatus]    = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
-  const [syncing,   setSyncing]   = useState(false)
-  const [results,   setResults]   = useState<MatchResult[] | null>(null)
-  const [saving,    setSaving]    = useState(false)
-  const [saved,     setSaved]     = useState(false)
-  const [errorMsg,  setErrorMsg]  = useState('')
+  const [status,       setStatus]       = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
+  const [syncing,      setSyncing]      = useState(false)
+  const [results,      setResults]      = useState<MatchResult[] | null>(null)
+  const [saving,       setSaving]       = useState(false)
+  const [saved,        setSaved]        = useState(false)
+  const [relinking,    setRelinking]    = useState(false)
+  const [relinkResult, setRelinkResult] = useState<{ linked: number; unmatched: number } | null>(null)
+  const [errorMsg,     setErrorMsg]     = useState('')
 
   const testConnection = async () => {
     setStatus('testing')
@@ -614,6 +803,32 @@ function RotacloudPanel() {
     }
   }
 
+  const relinkAll = async () => {
+    setRelinking(true)
+    setRelinkResult(null)
+    setErrorMsg('')
+    try {
+      const rotaUsers = await fetchRotaUsers()
+      const active = rotaUsers.filter(u => !u.deleted)
+      const emailToFirestore: Record<string, string> = {}
+      employees.forEach(e => { if (e.email) emailToFirestore[e.email.toLowerCase().trim()] = e.id })
+
+      const toLink = active
+        .map(ru => ({ firestoreId: emailToFirestore[ru.email?.toLowerCase().trim() ?? ''] ?? null, rotaId: ru.id }))
+        .filter(r => r.firestoreId !== null)
+
+      const batch = writeBatch(db)
+      toLink.forEach(r => batch.update(doc(db, 'employees', r.firestoreId!), { rotacloudId: r.rotaId }))
+      await batch.commit()
+
+      setRelinkResult({ linked: toLink.length, unmatched: active.length - toLink.length })
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : 'Relink failed')
+    } finally {
+      setRelinking(false)
+    }
+  }
+
   const linked   = results?.filter(r => r.firestoreId).length ?? 0
   const unlinked = results?.filter(r => !r.firestoreId).length ?? 0
 
@@ -623,7 +838,7 @@ function RotacloudPanel() {
         <h3 className="text-sm font-semibold text-secondary">RotaCloud Integration</h3>
         <p className="text-xs text-gray-400 mt-0.5">
           Connect your RotaCloud account to sync attendance, shifts, and employee records.
-          The API key is stored in Netlify environment variables — it never reaches the browser.
+          The API key is stored in Vercel environment variables — it never reaches the browser.
         </p>
       </div>
 
@@ -651,7 +866,7 @@ function RotacloudPanel() {
              'Not tested yet'}
           </p>
           <p className="text-[11px] text-gray-500 mt-0.5">
-            Set <code className="bg-gray-100 px-1 rounded">ROTACLOUD_API_KEY</code> in Netlify → Site Settings → Environment Variables, then redeploy.
+            Set <code className="bg-gray-100 px-1 rounded">ROTACLOUD_API_KEY</code> in Vercel → Project Settings → Environment Variables, then redeploy.
           </p>
         </div>
         <button
@@ -664,21 +879,42 @@ function RotacloudPanel() {
 
       {/* Employee linking */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-secondary">Employee Linking</p>
             <p className="text-xs text-gray-400 mt-0.5">
               Matches RotaCloud employees to your HR records by email so attendance data maps to the correct employee.
             </p>
           </div>
-          <button
-            onClick={syncEmployees}
-            disabled={syncing}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-secondary text-white text-xs font-semibold hover:bg-secondary/90 transition disabled:opacity-50">
-            <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
-            {syncing ? 'Fetching…' : 'Fetch & Match'}
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={relinkAll}
+              disabled={relinking || syncing}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary/90 transition disabled:opacity-50">
+              <RefreshCw size={13} className={relinking ? 'animate-spin' : ''} />
+              {relinking ? 'Relinking…' : 'Relink All'}
+            </button>
+            <button
+              onClick={syncEmployees}
+              disabled={syncing || relinking}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-secondary text-white text-xs font-semibold hover:bg-secondary/90 transition disabled:opacity-50">
+              <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
+              {syncing ? 'Fetching…' : 'Fetch & Match'}
+            </button>
+          </div>
         </div>
+
+        {/* Relink result banner */}
+        {relinkResult && (
+          <div className="flex items-center gap-3 px-4 py-3 bg-green-50 border border-green-200 rounded-xl">
+            <CheckCircle2 size={15} className="text-green-600 shrink-0" />
+            <p className="text-xs text-green-800 font-semibold">
+              Relinked {relinkResult.linked} employee{relinkResult.linked !== 1 ? 's' : ''} successfully.
+              {relinkResult.unmatched > 0 && <span className="font-normal text-green-700"> {relinkResult.unmatched} unmatched (email not found in HR records).</span>}
+            </p>
+          </div>
+        )}
+        {errorMsg && !results && <p className="text-xs text-red-500">{errorMsg}</p>}
 
         {results && (
           <>
@@ -729,8 +965,6 @@ function RotacloudPanel() {
                 </tbody>
               </table>
             </div>
-
-            {errorMsg && <p className="text-xs text-red-500">{errorMsg}</p>}
 
             <div className="flex items-center justify-between">
               <p className="text-xs text-gray-400">
@@ -892,10 +1126,17 @@ export default function Settings() {
             </div>
           )}
 
-          {tab === 'access'        && <AccessLevels />}
-          {tab === 'integrations'  && <RotacloudPanel />}
+          {tab === 'access'       && <AccessLevels />}
+          {tab === 'integrations' && (
+            <div className="space-y-8">
+              <OrganizationsPanel />
+              <div className="border-t border-gray-100 pt-6">
+                <RotacloudPanel />
+              </div>
+            </div>
+          )}
 
-          {tab !== 'access' && tab !== 'integrations' && (
+          {tab !== 'access' && tab !== 'integrations' && tab !== 'appearance' && (
             <div className="pt-2 flex justify-end">
               <button className="btn-primary text-sm gap-2"><Save size={14} /> Save Changes</button>
             </div>
