@@ -18,9 +18,14 @@ service cloud.firestore {
 
     // ── Employees ────────────────────────────────────────────────────
     match /employees/{id} {
-      allow read:   if isTeamLead();
+      allow read:   if isTeamLead()
+                    || (isAuth() && request.auth.token.email == resource.data.email);
       allow create: if isHR();
-      allow update: if isHR();
+      // HR can update anything; employees can update only their own rotacloudId
+      allow update: if isHR()
+                    || (isAuth()
+                        && request.auth.token.email == resource.data.email
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rotacloudId']));
       allow delete: if isAdmin();
     }
 
