@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react'
-import { X, ChevronRight } from 'lucide-react'
+import { X, ChevronRight, AlertCircle } from 'lucide-react'
 import { cn } from '../../../utils/cn'
 import { DEPARTMENTS } from '../../../utils/constants'
 import type { FirebaseEmployee } from '../../../hooks/useFirebaseEmployees'
@@ -10,6 +10,13 @@ type Tab = typeof TABS[number]
 const PROJECTS     = ['TakeMe', 'TC Cars', 'A1 Ace Taxis', 'Value Cars', 'Tower Cabs', 'Intercity', 'ADT', 'VGT', '1AB', 'Bounds', 'Birmingham', 'Other']
 const EMP_TYPES    = [{ v: 'full_time', l: 'Full-Time' }, { v: 'part_time', l: 'Part-Time' }, { v: 'contract', l: 'Contract' }, { v: 'agency', l: 'Agency' }]
 const STATUSES     = [{ v: 'active', l: 'Active' }, { v: 'on_leave', l: 'On Leave' }, { v: 'suspended', l: 'Suspended' }, { v: 'resigned', l: 'Resigned' }, { v: 'terminated', l: 'Terminated' }]
+
+const REASON_STATUSES = ['on_leave', 'suspended', 'resigned']
+const REASON_CONFIG: Record<string, { title: string; subtitle: string; placeholder: string; btnColor: string }> = {
+  on_leave:  { title: 'Leave Details',       subtitle: 'Provide details for the leave period.',        placeholder: 'e.g. Maternity leave, annual leave, personal reasons…', btnColor: 'bg-blue-600 hover:bg-blue-700'  },
+  suspended: { title: 'Suspension Reason',   subtitle: 'Record the reason for this suspension.',       placeholder: 'e.g. Under investigation for misconduct…',             btnColor: 'bg-red-600 hover:bg-red-700'    },
+  resigned:  { title: 'Resignation Details', subtitle: 'Record the reason for this resignation.',      placeholder: 'e.g. Personal reasons, relocation, better offer…',    btnColor: 'bg-gray-700 hover:bg-gray-800'  },
+}
 const GENDERS      = ['Male', 'Female', 'Other', 'Prefer not to say']
 const MARITAL      = ['Single', 'Married', 'Divorced', 'Widowed']
 const RELIGIONS    = ['Islam', 'Christianity', 'Hinduism', 'Other']
@@ -25,6 +32,7 @@ const EMPTY: Omit<FirebaseEmployee, 'id'> = {
   payType: 'fixed_monthly', salary: undefined, hourlyRate: undefined,
   monthlyHours: 160, overtimeRate: undefined, eobi: false,
   fuelAllowance: undefined, gymAllowance: undefined, securityDeduction: undefined,
+  statusReason: '', statusChangedDate: '',
 }
 
 interface Props {
@@ -48,11 +56,14 @@ function Field({ label, required, children }: { label: string; required?: boolea
 const inp = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-white text-gray-800 placeholder-gray-400 transition'
 
 export default function AddEditEmployeeModal({ employee, onSave, onClose, tableLabel }: Props) {
-  const [tab,       setTab]      = useState<Tab>('Personal')
-  const [form,      setForm]     = useState<Omit<FirebaseEmployee, 'id'>>(EMPTY)
-  const [saving,    setSaving]   = useState(false)
-  const [saveError, setSaveError] = useState('')
-  const [errors,    setErrors]   = useState<Record<string, string>>({})
+  const [tab,           setTab]          = useState<Tab>('Personal')
+  const [form,          setForm]         = useState<Omit<FirebaseEmployee, 'id'>>(EMPTY)
+  const [saving,        setSaving]       = useState(false)
+  const [saveError,     setSaveError]    = useState('')
+  const [errors,        setErrors]       = useState<Record<string, string>>({})
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null)
+  const [reasonText,    setReasonText]   = useState('')
+  const [reasonDate,    setReasonDate]   = useState('')
 
   useEffect(() => {
     if (employee) {
@@ -65,6 +76,26 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
 
   const set = (field: keyof typeof EMPTY, value: unknown) =>
     setForm(prev => ({ ...prev, [field]: value }))
+
+  const handleStatusChange = (newStatus: string) => {
+    if (REASON_STATUSES.includes(newStatus)) {
+      setReasonText('')
+      setReasonDate(new Date().toISOString().split('T')[0])
+      setPendingStatus(newStatus)
+    } else {
+      set('status', newStatus)
+      set('statusReason', '')
+      set('statusChangedDate', '')
+    }
+  }
+
+  const confirmStatusChange = () => {
+    if (!pendingStatus) return
+    set('status', pendingStatus)
+    set('statusReason', reasonText.trim())
+    set('statusChangedDate', reasonDate)
+    setPendingStatus(null)
+  }
 
   const validate = () => {
     const e: Record<string, string> = {}
@@ -217,9 +248,18 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                     </select>
                   </Field>
                   <Field label="Status">
-                    <select className={inp} value={form.status} onChange={e => set('status', e.target.value)}>
+                    <select className={inp} value={form.status} onChange={e => handleStatusChange(e.target.value)}>
                       {STATUSES.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
                     </select>
+                    {form.statusReason && (
+                      <div className="mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                        <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wide mb-0.5">Reason</p>
+                        <p className="text-xs text-amber-800">{form.statusReason}</p>
+                        {form.statusChangedDate && (
+                          <p className="text-[10px] text-amber-500 mt-0.5">Effective: {form.statusChangedDate}</p>
+                        )}
+                      </div>
+                    )}
                   </Field>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
@@ -434,6 +474,65 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
           </div>
         </form>
       </div>
+
+      {/* ── Status-reason dialog ── */}
+      {pendingStatus && (() => {
+        const cfg = REASON_CONFIG[pendingStatus]
+        return (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+              <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <AlertCircle size={22} className="text-amber-600" />
+              </div>
+              <h3 className="text-center font-bold text-gray-800 mb-1">{cfg.title}</h3>
+              <p className="text-center text-xs text-gray-400 mb-5">{cfg.subtitle}</p>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
+                    Effective Date
+                  </label>
+                  <input
+                    type="date"
+                    value={reasonDate}
+                    onChange={e => setReasonDate(e.target.value)}
+                    className={inp}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
+                    Reason <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={reasonText}
+                    onChange={e => setReasonText(e.target.value)}
+                    rows={3}
+                    placeholder={cfg.placeholder}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-5">
+                <button
+                  type="button"
+                  onClick={() => setPendingStatus(null)}
+                  className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmStatusChange}
+                  disabled={!reasonText.trim()}
+                  className={`flex-1 py-2.5 text-white rounded-xl text-sm font-semibold transition disabled:opacity-50 ${cfg.btnColor}`}>
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
