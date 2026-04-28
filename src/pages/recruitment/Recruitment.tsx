@@ -3,7 +3,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import {
   Users, Search, Download, UserCheck, UserX, Eye,
   FileText, AlertTriangle, X, QrCode, ExternalLink,
-  ChevronDown, Filter, Clock, CheckCircle,
+  ChevronDown, Filter, Clock, CheckCircle, Trash2,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import * as XLSX from 'xlsx'
@@ -80,12 +80,13 @@ function exportApplicant(a: Applicant) {
 
 // ── Applicant detail modal ──────────────────────────────────────────────
 function ApplicantModal({
-  applicant, onClose, onReject, onHire, onStatusChange,
+  applicant, onClose, onReject, onHire, onDelete, onStatusChange,
 }: {
   applicant: Applicant
   onClose: () => void
   onReject: () => void
   onHire: () => void
+  onDelete: () => void
   onStatusChange: (s: Applicant['status']) => void
 }) {
   const statuses: Applicant['status'][] = ['new', 'reviewing', 'shortlisted']
@@ -220,10 +221,16 @@ function ApplicantModal({
 
         {/* Footer actions */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/50 shrink-0">
-          <button onClick={onReject}
-            className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 font-semibold text-sm rounded-xl transition">
-            <UserX size={15} /> Reject
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={onReject}
+              className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 font-semibold text-sm rounded-xl transition">
+              <UserX size={15} /> Reject
+            </button>
+            <button onClick={onDelete}
+              className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 text-gray-400 hover:text-gray-600 font-semibold text-sm rounded-xl transition">
+              <Trash2 size={15} /> Delete
+            </button>
+          </div>
           <button onClick={onHire}
             className="flex items-center gap-2 px-5 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold text-sm rounded-xl transition shadow-lg shadow-green-600/20">
             <UserCheck size={15} /> Hire — Add to Employees
@@ -326,6 +333,63 @@ function RejectConfirm({ name, onConfirm, onClose, confirming }: {
   )
 }
 
+// ── Delete confirm modal (2-step) ───────────────────────────────────────
+function DeleteConfirm({ name, onConfirm, onClose, confirming }: {
+  name: string; onConfirm: () => void; onClose: () => void; confirming: boolean
+}) {
+  const [step, setStep] = useState(1)
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        <div className={cn(
+          'w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-4',
+          step === 1 ? 'bg-red-100' : 'bg-red-200'
+        )}>
+          <Trash2 size={22} className="text-red-600" />
+        </div>
+
+        {step === 1 ? (
+          <>
+            <h3 className="text-center font-bold text-gray-800 mb-2">Delete Application</h3>
+            <p className="text-center text-sm text-gray-500 mb-6">
+              Are you sure you want to permanently delete <strong>{name}</strong>'s application?
+              This will remove all their data with no archive copy.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={onClose}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">
+                Cancel
+              </button>
+              <button onClick={() => setStep(2)}
+                className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-semibold transition">
+                Delete
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h3 className="text-center font-bold text-red-700 mb-2">Final Confirmation</h3>
+            <p className="text-center text-sm text-gray-500 mb-2">
+              This will <strong>permanently erase all data</strong> for <strong>{name}</strong>.
+            </p>
+            <p className="text-center text-xs text-red-500 font-semibold mb-6">There is no way to recover this.</p>
+            <div className="flex gap-3">
+              <button onClick={onClose}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">
+                Cancel
+              </button>
+              <button onClick={onConfirm} disabled={confirming}
+                className="flex-1 py-2.5 bg-red-700 hover:bg-red-800 text-white rounded-xl text-sm font-semibold transition disabled:opacity-60">
+                {confirming ? 'Deleting…' : 'Yes, Delete Permanently'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ───────────────────────────────────────────────────────────
 export default function Recruitment() {
   const { applicants, rejected, loading, rejectApplicant, updateApplicant, removeApplicant } = useFirebaseApplicants()
@@ -335,6 +399,7 @@ export default function Recruitment() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [viewApp,      setViewApp]      = useState<Applicant | null>(null)
   const [rejectTarget, setRejectTarget] = useState<Applicant | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Applicant | null>(null)
   const [confirming,   setConfirming]   = useState(false)
   const [hireApp,      setHireApp]      = useState<Applicant | null>(null)
   const [showRejected, setShowRejected] = useState(false)
@@ -363,6 +428,18 @@ export default function Recruitment() {
       setViewApp(null)
       notify('Applicant rejected and record archived')
     } catch { notify('Failed to reject applicant', 'error') }
+    finally { setConfirming(false) }
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return
+    setConfirming(true)
+    try {
+      await removeApplicant(deleteTarget.id)
+      setDeleteTarget(null)
+      setViewApp(null)
+      notify('Application permanently deleted')
+    } catch { notify('Failed to delete application', 'error') }
     finally { setConfirming(false) }
   }
 
@@ -540,11 +617,12 @@ export default function Recruitment() {
       </div>
 
       {/* ── Modals ── */}
-      {viewApp && !rejectTarget && !hireApp && (
+      {viewApp && !rejectTarget && !deleteTarget && !hireApp && (
         <ApplicantModal
           applicant={viewApp}
           onClose={() => setViewApp(null)}
           onReject={() => setRejectTarget(viewApp)}
+          onDelete={() => setDeleteTarget(viewApp)}
           onHire={() => setHireApp(viewApp)}
           onStatusChange={async (s) => {
             await updateApplicant(viewApp.id, { status: s })
@@ -559,6 +637,15 @@ export default function Recruitment() {
           name={rejectTarget.name}
           onConfirm={handleRejectConfirm}
           onClose={() => setRejectTarget(null)}
+          confirming={confirming}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeleteConfirm
+          name={deleteTarget.name}
+          onConfirm={handleDeleteConfirm}
+          onClose={() => setDeleteTarget(null)}
           confirming={confirming}
         />
       )}
