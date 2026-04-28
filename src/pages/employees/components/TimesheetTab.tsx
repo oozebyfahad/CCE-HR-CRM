@@ -652,7 +652,7 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
   })
   const totalHours   = attList.reduce((s, r) => s + r.hours, 0)
   const totalDays    = attList.filter(r => r.hours > 0 || r.in_time_clocked).length
-  const lateDays     = attList.filter(r => r.minutes_late > 30).length
+  const lateDays     = attList.filter(r => r.minutes_late > 0).length
   const approvedDays = attList.filter(r => r.approved).length
   const overtimeH    = attList.reduce((s, r) => s + Math.max(0, r.hours - 8), 0)
   const absentDays   = days.filter(({ date, att }) =>
@@ -885,7 +885,7 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
               } else if (att) {
                 if (stilIn)                                            status = 'live'
                 else if (att.hours > 0 && att.hours < 4)             status = 'half_day'
-                else if (att.hours >= 4 && att.minutes_late > 30)    status = 'late'
+                else if (att.hours >= 4 && att.minutes_late > 0)     status = 'late'
                 else if (att.hours >= 4)                              status = 'present'
                 else                                                   status = 'present'
               } else if (!future && !weekend) {
