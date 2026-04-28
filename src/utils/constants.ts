@@ -63,10 +63,28 @@ export const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
 
 export const STATUS_LABELS: Record<string, string> = {
   active:      'Active',
+  probation:   'Probation',
   on_leave:    'On Leave',
   suspended:   'Suspended',
   resigned:    'Resigned',
   terminated:  'Terminated',
+}
+
+/**
+ * Returns the effective display status for an employee.
+ * - If startDate is within the last 3 months → 'probation' (auto)
+ * - If stored as 'probation' but 3+ months have passed → 'active'
+ * - Explicit statuses (resigned/suspended/on_leave/terminated) always win
+ */
+export function getEffectiveStatus(emp: { status: string; startDate?: string }): string {
+  if (['resigned', 'suspended', 'terminated', 'on_leave'].includes(emp.status)) return emp.status
+  if (emp.startDate) {
+    const probationEnd = new Date(emp.startDate + 'T00:00:00')
+    probationEnd.setMonth(probationEnd.getMonth() + 3)
+    if (new Date() < probationEnd) return 'probation'
+  }
+  if (emp.status === 'probation') return 'active'
+  return emp.status
 }
 
 export const NAV_ITEMS = [

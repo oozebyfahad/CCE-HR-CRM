@@ -49,7 +49,7 @@ export function Badge({ children, variant = 'neutral', size = 'sm', className, d
 // Convenience helpers
 export const statusVariant = (status: string): Variant => {
   const map: Record<string, Variant> = {
-    active: 'success', on_leave: 'info', suspended: 'warning',
+    active: 'success', probation: 'purple', on_leave: 'info', suspended: 'warning',
     resigned: 'neutral', terminated: 'danger',
     present: 'success', absent: 'danger', late: 'warning', early_departure: 'orange',
     pending: 'warning', approved: 'success', declined: 'danger', cancelled: 'neutral',

@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { Badge, statusVariant } from '../../components/common/Badge'
 import { useCurrency } from '../../context/CurrencyContext'
-import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS } from '../../utils/constants'
+import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS, getEffectiveStatus } from '../../utils/constants'
 import { PAY_TYPE_LABELS } from '../../utils/payroll'
 import type { FirebaseEmployee } from '../../hooks/useFirebaseEmployees'
 import { exportSingleEmployee } from '../../utils/exportExcel'
@@ -259,8 +259,8 @@ export default function EmployeeProfile() {
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-[10px] font-mono text-white/40">{emp.employeeId}</span>
                 <span className="text-white/20">·</span>
-                <Badge variant={statusVariant(emp.status)} size="xs" dot>
-                  {STATUS_LABELS[emp.status] ?? emp.status}
+                <Badge variant={statusVariant(getEffectiveStatus(emp))} size="xs" dot>
+                  {STATUS_LABELS[getEffectiveStatus(emp)] ?? getEffectiveStatus(emp)}
                 </Badge>
               </div>
             </div>
@@ -389,7 +389,7 @@ export default function EmployeeProfile() {
                   cols={['Effective Date','Employment Status','Reason']}
                   rows={[[
                     fmtShort(emp.statusChangedDate || emp.startDate),
-                    <Badge variant={statusVariant(emp.status)} size="xs" dot>{STATUS_LABELS[emp.status] ?? emp.status}</Badge>,
+                    <Badge variant={statusVariant(getEffectiveStatus(emp))} size="xs" dot>{STATUS_LABELS[getEffectiveStatus(emp)] ?? getEffectiveStatus(emp)}</Badge>,
                     emp.statusReason
                       ? <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 inline-block">{emp.statusReason}</span>
                       : <span className="text-gray-300">—</span>,

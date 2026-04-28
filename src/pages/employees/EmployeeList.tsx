@@ -17,7 +17,7 @@ function safeFormatDate(d?: string): string {
 }
 import { Avatar } from '../../components/common/Avatar'
 import { Badge, statusVariant } from '../../components/common/Badge'
-import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS, DEPARTMENT_COLORS, DEPARTMENTS as DEPARTMENTS_LIST } from '../../utils/constants'
+import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS, DEPARTMENT_COLORS, DEPARTMENTS as DEPARTMENTS_LIST, getEffectiveStatus } from '../../utils/constants'
 import { useFirebaseEmployees, type FirebaseEmployee } from '../../hooks/useFirebaseEmployees'
 import AddEditEmployeeModal    from './components/AddEditEmployeeModal'
 import DeleteConfirmModal      from './components/DeleteConfirmModal'
@@ -528,7 +528,7 @@ function RotacloudImportModal({
 
 // ── Status dot ──────────────────────────────────────────────────────────
 const statusDot: Record<string, string> = {
-  active: '#22c55e', on_leave: '#3b82f6', suspended: '#f59e0b',
+  active: '#22c55e', probation: '#a855f7', on_leave: '#3b82f6', suspended: '#f59e0b',
   resigned: '#9ca3af', terminated: '#ef4444',
 }
 
@@ -613,7 +613,7 @@ export default function EmployeeList() {
       const matchDept    = dept    === 'All' || e.department    === dept
       const matchProject = project === 'All' || (e.project ?? '') === project
       const matchType    = empType === 'All' || e.employmentType === empType
-      const matchStatus  = statusF === 'All' || e.status         === statusF
+      const matchStatus  = statusF === 'All' || getEffectiveStatus(e) === statusF
       return matchSearch && matchDept && matchProject && matchType && matchStatus
     })
     .sort((a, b) => {
@@ -823,7 +823,7 @@ export default function EmployeeList() {
                 <Avatar name={emp.name} size="sm" />
                 <span
                   className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white"
-                  style={{ backgroundColor: statusDot[emp.status] ?? '#9ca3af' }}
+                  style={{ backgroundColor: statusDot[getEffectiveStatus(emp)] ?? '#9ca3af' }}
                 />
               </div>
               <div className="overflow-hidden">
@@ -865,8 +865,8 @@ export default function EmployeeList() {
 
             {/* Status */}
             <div className="w-24 shrink-0">
-              <Badge variant={statusVariant(emp.status)} size="xs" dot>
-                {STATUS_LABELS[emp.status] ?? emp.status}
+              <Badge variant={statusVariant(getEffectiveStatus(emp))} size="xs" dot>
+                {STATUS_LABELS[getEffectiveStatus(emp)] ?? getEffectiveStatus(emp)}
               </Badge>
             </div>
 

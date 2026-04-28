@@ -9,7 +9,7 @@ type Tab = typeof TABS[number]
 
 const PROJECTS     = ['TakeMe', 'TC Cars', 'A1 Ace Taxis', 'Value Cars', 'Tower Cabs', 'Intercity', 'ADT', 'VGT', '1AB', 'Bounds', 'Birmingham', 'Other']
 const EMP_TYPES    = [{ v: 'full_time', l: 'Full-Time' }, { v: 'part_time', l: 'Part-Time' }, { v: 'contract', l: 'Contract' }, { v: 'agency', l: 'Agency' }]
-const STATUSES     = [{ v: 'active', l: 'Active' }, { v: 'on_leave', l: 'On Leave' }, { v: 'suspended', l: 'Suspended' }, { v: 'resigned', l: 'Resigned' }, { v: 'terminated', l: 'Terminated' }]
+const STATUSES     = [{ v: 'active', l: 'Active' }, { v: 'probation', l: 'Probation' }, { v: 'on_leave', l: 'On Leave' }, { v: 'suspended', l: 'Suspended' }, { v: 'resigned', l: 'Resigned' }, { v: 'terminated', l: 'Terminated' }]
 
 const REASON_STATUSES = ['on_leave', 'suspended', 'resigned']
 const REASON_CONFIG: Record<string, { title: string; subtitle: string; placeholder: string; btnColor: string }> = {
@@ -95,6 +95,19 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
     set('statusReason', reasonText.trim())
     set('statusChangedDate', reasonDate)
     setPendingStatus(null)
+  }
+
+  // Auto-set probation when start date is entered for a new employee
+  const handleStartDateChange = (date: string) => {
+    setForm(prev => {
+      const next = { ...prev, startDate: date }
+      if (!employee?.id && ['active', 'probation'].includes(prev.status) && date) {
+        const probationEnd = new Date(date + 'T00:00:00')
+        probationEnd.setMonth(probationEnd.getMonth() + 3)
+        next.status = new Date() < probationEnd ? 'probation' : 'active'
+      }
+      return next
+    })
   }
 
   const validate = () => {
@@ -225,7 +238,7 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
                   <Field label="Date of Joining" required>
-                    <input className={inp} type="date" value={form.startDate} onChange={e => set('startDate', e.target.value)} />
+                    <input className={inp} type="date" value={form.startDate} onChange={e => handleStartDateChange(e.target.value)} />
                     {err('startDate')}
                   </Field>
                   <Field label="Project / Client">

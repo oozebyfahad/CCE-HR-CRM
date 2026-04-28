@@ -2,7 +2,7 @@ import { X, Download, MapPin, Briefcase, CreditCard, User, Phone } from 'lucide-
 import { Avatar } from '../../../components/common/Avatar'
 import { Badge, statusVariant } from '../../../components/common/Badge'
 import { useCurrency } from '../../../context/CurrencyContext'
-import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS } from '../../../utils/constants'
+import { EMPLOYMENT_TYPE_LABELS, STATUS_LABELS, getEffectiveStatus } from '../../../utils/constants'
 import type { FirebaseEmployee } from '../../../hooks/useFirebaseEmployees'
 import { exportSingleEmployee } from '../../../utils/exportExcel'
 
@@ -51,8 +51,8 @@ export default function ViewEmployeeModal({ employee: e, onClose, onEdit }: Prop
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-xs text-gray-400 font-mono">{e.employeeId}</span>
                 <span className="text-gray-200">·</span>
-                <Badge variant={statusVariant(e.status)} size="xs" dot>
-                  {STATUS_LABELS[e.status] ?? e.status}
+                <Badge variant={statusVariant(getEffectiveStatus(e))} size="xs" dot>
+                  {STATUS_LABELS[getEffectiveStatus(e)] ?? getEffectiveStatus(e)}
                 </Badge>
               </div>
             </div>

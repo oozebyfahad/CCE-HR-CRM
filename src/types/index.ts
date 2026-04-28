@@ -12,7 +12,7 @@ export interface User {
 
 // ── Employee ──────────────────────────────────────────────────────────
 export type EmploymentType = 'full_time' | 'part_time' | 'contract' | 'agency'
-export type EmployeeStatus = 'active' | 'on_leave' | 'suspended' | 'resigned' | 'terminated'
+export type EmployeeStatus = 'active' | 'probation' | 'on_leave' | 'suspended' | 'resigned' | 'terminated'
 export type ContractType  = 'permanent' | 'fixed_term' | 'zero_hours'
 export type ProbationStatus = 'in_probation' | 'passed' | 'extended' | 'failed'
 export type BloodGroup = 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-' | 'O+' | 'O-'
