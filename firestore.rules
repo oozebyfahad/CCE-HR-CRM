@@ -45,11 +45,11 @@ service cloud.firestore {
     }
 
     match /payroll_runs/{runId} {
-      allow read:   if isHR();
-      allow write:  if isHR();
+      allow read:   if isAdmin();
+      allow write:  if isAdmin();
       match /entries/{entryId} {
-        allow read:   if isHR();
-        allow write:  if isHR();
+        allow read:   if isAdmin();
+        allow write:  if isAdmin();
       }
     }
 

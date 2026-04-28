@@ -34,7 +34,7 @@ const NAV: { path: string; label: string; Icon: React.ElementType; roles: UserRo
   { path: '/shifts',        label: 'Shift Management',  Icon: CalendarClock,   roles: ['admin','hr','team_lead'] },
   { path: '/performance',   label: 'Performance',       Icon: TrendingUp,      roles: ['admin','hr','team_lead','employee'] },
   { path: '/training',      label: 'Training & Dev',    Icon: GraduationCap,   roles: ['admin','hr','team_lead'] },
-  { path: '/payroll',       label: 'Payroll',           Icon: Banknote,        roles: ['admin','hr'] },
+  { path: '/payroll',       label: 'Payroll',           Icon: Banknote,        roles: ['admin'] },
   { path: '/advances',      label: 'Advances & Loans',  Icon: HandCoins,       roles: ['admin','hr'] },
   { path: '/compliance',    label: 'Compliance',        Icon: ShieldCheck,     roles: ['admin','hr'] },
   { path: '/recruitment',   label: 'Recruitment',       Icon: UserPlus,        roles: ['admin','hr'] },

@@ -45,6 +45,13 @@ function EmployeeRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const user = useAppSelector(s => s.auth.user)
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role !== 'admin') return <Navigate to="/dashboard" replace />
+  return <>{children}</>
+}
+
 export function AppRouter() {
   return (
     <Routes>
@@ -86,7 +93,7 @@ export function AppRouter() {
         <Route path="recruitment"  element={<Recruitment />} />
         <Route path="training"     element={<Training />} />
         <Route path="disciplinary" element={<Disciplinary />} />
-        <Route path="payroll"      element={<Payroll />} />
+        <Route path="payroll"      element={<AdminRoute><Payroll /></AdminRoute>} />
         <Route path="shifts"       element={<Shifts />} />
         <Route path="advances"     element={<Advances />} />
         <Route path="compliance"   element={<Compliance />} />
