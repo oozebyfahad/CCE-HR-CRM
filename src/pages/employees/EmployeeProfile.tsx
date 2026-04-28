@@ -386,11 +386,13 @@ export default function EmployeeProfile() {
               </div>
               <SectionCard title="Employment Status">
                 <DataTable
-                  cols={['Effective Date','Employment Status','Comment']}
+                  cols={['Effective Date','Employment Status','Reason']}
                   rows={[[
-                    fmtShort(emp.startDate),
+                    fmtShort(emp.statusChangedDate || emp.startDate),
                     <Badge variant={statusVariant(emp.status)} size="xs" dot>{STATUS_LABELS[emp.status] ?? emp.status}</Badge>,
-                    '—',
+                    emp.statusReason
+                      ? <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 inline-block">{emp.statusReason}</span>
+                      : <span className="text-gray-300">—</span>,
                   ]]}
                 />
               </SectionCard>
