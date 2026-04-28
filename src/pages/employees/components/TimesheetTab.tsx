@@ -1094,6 +1094,35 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
     currentlyClockedIn,
   } = useFirebaseTimesheets(emp.id)
 
+  const rcId = emp.rotacloudId ? Number(emp.rotacloudId) : null
+
+  // ── Weekly RotaCloud fetch ────────────────────────────────────────────
+  const [weekRcAtt,     setWeekRcAtt]     = useState<RotaAttendance[]>([])
+  const [weekRcShifts,  setWeekRcShifts]  = useState<RotaShift[]>([])
+  const [weekRcLoading, setWeekRcLoading] = useState(false)
+
+  useEffect(() => {
+    if (!rcId || view !== 'weekly') return
+    let cancelled = false
+    setWeekRcLoading(true)
+    const startUnix = Math.floor(new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate()).getTime() / 1000)
+    const endDay    = addDays(weekStart, 6)
+    const endUnix   = Math.floor(new Date(endDay.getFullYear(), endDay.getMonth(), endDay.getDate(), 23, 59, 59).getTime() / 1000)
+    Promise.all([
+      fetchRotaAttendance(startUnix, endUnix),
+      fetchRotaShifts(startUnix, endUnix),
+    ])
+      .then(([att, shf]) => {
+        if (!cancelled) {
+          setWeekRcAtt(att.filter(r => !r.deleted && r.user === rcId))
+          setWeekRcShifts(shf.filter(s => !s.deleted && s.published && !s.open && s.user === rcId))
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setWeekRcLoading(false) })
+    return () => { cancelled = true }
+  }, [weekStart, rcId, view])
+
   // Live clock tick every 30 s
   useEffect(() => {
     const t = setInterval(() => setLiveTime(new Date()), 30_000)
@@ -1116,6 +1145,18 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
     const [sh, sm] = currentlyClockedIn.startTime.split(':').map(Number)
     const diffM    = liveTime.getHours() * 60 + liveTime.getMinutes() - sh * 60 - sm
     liveDuration   = fmtHours(Math.max(0, diffM / 60))
+  }
+
+  // Index weekly RC data by date string (YYYY-MM-DD)
+  const weekRcAttByDate   = new Map<string, RotaAttendance>()
+  for (const r of weekRcAtt) {
+    const d = unixToLocalDate((r.in_time_clocked ?? r.in_time) as number)
+    weekRcAttByDate.set(d, r)
+  }
+  const weekRcShiftByDate = new Map<string, RotaShift>()
+  for (const s of weekRcShifts) {
+    const d = unixToLocalDate(s.start_time)
+    if (!weekRcShiftByDate.has(d)) weekRcShiftByDate.set(d, s)
   }
 
   return (
@@ -1191,6 +1232,7 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
             <div className="flex items-center gap-2">
               <Clock size={13} className="text-primary" />
               <span className="text-sm font-bold text-secondary">{fmtRange(weekStart)}</span>
+              {weekRcLoading && <RefreshCw size={11} className="text-gray-400 animate-spin ml-1" />}
             </div>
             <button onClick={() => setWeekStart(d => addDays(d, 7))}
               disabled={isThisWeek}
@@ -1255,6 +1297,47 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
                         </div>
                       ))
                     }
+                    {/* RotaCloud attendance row */}
+                    {(() => {
+                      const rcAtt   = weekRcAttByDate.get(ymd)
+                      const rcShift = weekRcShiftByDate.get(ymd)
+                      if (!rcAtt && !rcShift) return null
+                      const stilIn = !!rcAtt?.in_time_clocked && !rcAtt?.out_time_clocked
+                      return (
+                        <div className={cn(
+                          'flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]',
+                          dayEntries.length > 0 && 'mt-1.5 pt-1.5 border-t border-gray-100'
+                        )}>
+                          <span className="font-bold px-1.5 py-0.5 bg-blue-50 text-blue-500 rounded text-[9px] uppercase tracking-wider shrink-0">RC</span>
+                          {rcShift && (
+                            <span className="text-gray-400">
+                              Sched: <span className="font-mono text-gray-500">{fmt12(unixToHHMM(rcShift.start_time))}–{fmt12(unixToHHMM(rcShift.end_time))}</span>
+                            </span>
+                          )}
+                          {rcAtt?.in_time_clocked && (
+                            <span className={cn('font-mono', rcAtt.minutes_late > 0 ? 'text-amber-600' : 'text-gray-600')}>
+                              In {fmt12(unixToHHMM(rcAtt.in_time_clocked))}
+                              {rcAtt.minutes_late > 0 && <span className="text-amber-500 ml-0.5">+{rcAtt.minutes_late}m late</span>}
+                            </span>
+                          )}
+                          {stilIn
+                            ? <span className="text-emerald-600 font-semibold flex items-center gap-0.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />Live
+                              </span>
+                            : rcAtt?.out_time_clocked
+                              ? <span className="font-mono text-gray-600">Out {fmt12(unixToHHMM(rcAtt.out_time_clocked))}</span>
+                              : null}
+                          {rcAtt && rcAtt.hours > 0 && (
+                            <span className="font-semibold text-gray-700">{fmtHours(rcAtt.hours)}</span>
+                          )}
+                          {rcAtt?.approved && (
+                            <span className="text-green-600 flex items-center gap-0.5">
+                              <CheckCircle2 size={9} />Approved
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
 
                   {/* Day total + attendance + add */}

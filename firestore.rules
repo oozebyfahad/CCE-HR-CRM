@@ -70,6 +70,11 @@ service cloud.firestore {
       allow delete: if isHR();
     }
 
+    match /rejected/{id} {
+      allow read:  if true;
+      allow write: if isHR();
+    }
+
     match /timesheets/{id} {
       allow read:   if isTeamLead();
       allow write:  if isAuth();
