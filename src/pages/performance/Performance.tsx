@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer, Tooltip,
   ComposedChart, Bar, XAxis, YAxis, CartesianGrid, Line, AreaChart, Area,
@@ -282,75 +282,29 @@ export default function Performance() {
   const [appliedFromDate,  setAppliedFromDate]  = useState('')
   const [appliedToDate,    setAppliedToDate]    = useState('')
   const [apiRecordings,    setApiRecordings]    = useState<CallRecording[]>([])
-  const [apiSearching,     setApiSearching]     = useState(false)
-  const [probeMsg,         setProbeMsg]         = useState('')
-  const [voipStatus,       setVoipStatus]       = useState<{ checking: boolean; webhooks: {url:string;token:string}[]; checked: boolean; error?: string }>({ checking: false, webhooks: [], checked: false })
-  const [registering,      setRegistering]      = useState(false)
+  const [apiLoading,       setApiLoading]       = useState(false)
+  const [apiLoaded,        setApiLoaded]        = useState(false)
 
-  const applySearch = async () => {
+  // Auto-load all recordings from VoIP API when tab opens
+  useEffect(() => {
+    if (tab !== 'recordings' || apiLoaded) return
+    setApiLoading(true)
+    fetch('/api/voip', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ action: 'all' }),
+    })
+      .then(r => r.json())
+      .then(json => {
+        if (json.ok && Array.isArray(json.data)) setApiRecordings(json.data as CallRecording[])
+      })
+      .catch(() => {})
+      .finally(() => { setApiLoading(false); setApiLoaded(true) })
+  }, [tab, apiLoaded])
+
+  const applySearch = () => {
     setAppliedFromDate(recFromDate)
     setAppliedToDate(recToDate)
-    setApiSearching(true)
-    setProbeMsg('')
-    try {
-      const r = await fetch('/api/voip', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ action: 'probe', from: recFromDate, to: recToDate }),
-      })
-      const json = await r.json()
-      if (json.ok && Array.isArray(json.data) && json.data.length > 0) {
-        setApiRecordings(json.data as CallRecording[])
-        setProbeMsg(`Found ${json.data.length} recording${json.data.length !== 1 ? 's' : ''}`)
-      } else if (json.ok && json.data?.length === 0) {
-        setProbeMsg(json.message ?? 'No recordings in this date range')
-      } else if (json.message === 'SELECT_DATES') {
-        setProbeMsg('Please select a From and To date before searching.')
-      } else {
-        // Show all attempts so we can diagnose the right date format
-        const summary = (json.attempts ?? [])
-          .map((a: Record<string, string | number>) =>
-            `[${a.sKey}/${a.eKey}] fmt="${a.fmt}" → ${a.status ?? 'ERR'}: ${String(a.preview ?? a.error ?? '').slice(0, 70)}`)
-          .join('\n')
-        setProbeMsg(summary || (json.message ?? 'No list endpoint found'))
-      }
-    } catch {
-      setProbeMsg('Could not reach VoIP proxy — check Vercel function logs')
-    } finally {
-      setApiSearching(false)
-    }
-  }
-
-  const checkVoipStatus = async () => {
-    setVoipStatus({ checking: true, webhooks: [], checked: false })
-    try {
-      const r = await fetch('/api/voip', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ action: 'check' }),
-      })
-      const json = await r.json()
-      setVoipStatus({ checking: false, webhooks: json.webhooks ?? [], checked: true, error: json.ok ? undefined : json.raw })
-    } catch (e: unknown) {
-      setVoipStatus({ checking: false, webhooks: [], checked: true, error: String(e) })
-    }
-  }
-
-  const registerWebhook = async () => {
-    setRegistering(true)
-    try {
-      const webhookUrl = `${window.location.origin}/api/yestech-webhook`
-      const customerToken = 'cce_voip_2026'
-      const r = await fetch('/api/voip', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ action: 'register', webhookUrl, customerToken }),
-      })
-      const json = await r.json()
-      if (json.ok) await checkVoipStatus()
-    } finally {
-      setRegistering(false)
-    }
   }
 
   // Merge Firebase + direct API results, deduplicated by id
@@ -765,50 +719,6 @@ export default function Performance() {
             )
           })()}
 
-          {/* VoIP connection status */}
-          <div className="card p-4 flex flex-wrap items-center gap-3">
-            <div className="flex-1 min-w-0">
-              {!voipStatus.checked && !voipStatus.checking && (
-                <p className="text-xs text-gray-400">Check that your VoIP webhook is registered before searching.</p>
-              )}
-              {voipStatus.checking && (
-                <p className="text-xs text-gray-400 flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Checking VoIP connection…</p>
-              )}
-              {voipStatus.checked && voipStatus.webhooks.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-emerald-600 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Webhook registered — recordings will appear automatically after each call
-                  </p>
-                  {voipStatus.webhooks.map((w, i) => (
-                    <p key={i} className="text-[10px] text-gray-400 mt-0.5 font-mono">{w.url}</p>
-                  ))}
-                </div>
-              )}
-              {voipStatus.checked && voipStatus.webhooks.length === 0 && !voipStatus.error && (
-                <p className="text-xs font-semibold text-amber-600 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> No webhook registered — click Register to set it up
-                </p>
-              )}
-              {voipStatus.checked && voipStatus.error && (
-                <p className="text-xs text-red-500">Token error — check VOIP_API_TOKEN in Vercel: <span className="font-mono">{voipStatus.error?.slice(0, 80)}</span></p>
-              )}
-            </div>
-            <div className="flex gap-2 flex-shrink-0">
-              <button onClick={checkVoipStatus} disabled={voipStatus.checking}
-                className="flex items-center gap-1.5 text-xs border border-gray-200 text-gray-500 hover:text-secondary px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
-                {voipStatus.checking ? <Loader2 size={11} className="animate-spin" /> : <Phone size={11} />}
-                Check Connection
-              </button>
-              {voipStatus.checked && voipStatus.webhooks.length === 0 && !voipStatus.error && (
-                <button onClick={registerWebhook} disabled={registering}
-                  className="flex items-center gap-1.5 text-xs bg-primary text-white px-3 py-1.5 rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50">
-                  {registering ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
-                  Register Webhook
-                </button>
-              )}
-            </div>
-          </div>
-
           {/* Filters */}
           <div className="card p-4 space-y-3">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -873,34 +783,24 @@ export default function Performance() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => { setRecSource(''); setRecDest(''); setRecFromDate(''); setRecToDate(''); setRecAgent('All Agents'); setAppliedFromDate(''); setAppliedToDate(''); setApiRecordings([]); setProbeMsg('') }}
+                  onClick={() => { setRecSource(''); setRecDest(''); setRecFromDate(''); setRecToDate(''); setRecAgent('All Agents'); setAppliedFromDate(''); setAppliedToDate('') }}
                   className="flex items-center justify-center gap-2 border border-gray-200 text-gray-500 hover:text-secondary px-4 py-2 rounded-lg text-sm font-medium transition-colors">
                   <X size={13} /> Clear
                 </button>
                 <button
                   onClick={applySearch}
-                  disabled={apiSearching}
-                  className="flex items-center justify-center gap-2 bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60">
-                  {apiSearching ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
-                  {apiSearching ? 'Searching…' : 'Search'}
+                  className="flex items-center justify-center gap-2 bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
+                  <Search size={13} /> Filter
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Probe result */}
-          {probeMsg && (
-            <div className="card p-3 bg-gray-50 border border-gray-200">
-              <p className="text-[10px] font-semibold text-gray-500 mb-1">VoIP API response:</p>
-              <pre className="text-[10px] text-gray-600 whitespace-pre-wrap font-mono">{probeMsg}</pre>
-            </div>
-          )}
-
           {/* Table */}
           <div className="card overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-secondary">
-                {recLoading ? 'Loading…' : `${recordings.length} recording${recordings.length !== 1 ? 's' : ''}`}
+                {(recLoading || apiLoading) ? 'Loading…' : `${recordings.length} recording${recordings.length !== 1 ? 's' : ''}`}
                 {recSelected.length > 0 && <span className="ml-2 text-xs text-primary font-normal">· {recSelected.length} selected</span>}
               </p>
               <div className="relative">
@@ -929,11 +829,11 @@ export default function Performance() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {recLoading && (
+                  {(recLoading || apiLoading) && (
                     <tr>
                       <td colSpan={7} className="px-4 py-12 text-center">
                         <Loader2 size={20} className="animate-spin text-primary mx-auto" />
-                        <p className="text-xs text-gray-400 mt-2">Connecting to live feed…</p>
+                        <p className="text-xs text-gray-400 mt-2">Loading recordings…</p>
                       </td>
                     </tr>
                   )}

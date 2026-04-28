@@ -13,6 +13,32 @@
 
 const BASE = 'https://voipserver5216.vipvoipuk.net/api'
 
+function parseCsvOuter(text) {
+  const lines = text.trim().split('\n').filter(Boolean)
+  if (lines.length < 2) return { ok: true, data: [] }
+  const headers = lines[0].split(',').map(h => h.trim().replace(/\r/g, '').toLowerCase())
+  const data = lines.slice(1).map(line => {
+    const cols = line.split(',').map(c => c.trim().replace(/\r/g, ''))
+    const row = {}
+    headers.forEach((h, i) => { row[h] = cols[i] ?? '' })
+    const dur = parseInt(row.duration ?? '0') || 0
+    const id  = row.id ?? ''
+    return {
+      id,
+      callID:      '',
+      duration:    dur,
+      durationFmt: `${String(Math.floor(dur / 60)).padStart(2, '0')}:${String(dur % 60).padStart(2, '0')}`,
+      datetime:    row.datetime ?? '',
+      source:      row.source ?? '',
+      destination: row.destination ?? '',
+      isProtected: false,
+      filename:    row.filename ?? '',
+      url:         `${BASE}/callRecordingGetV1.php?callRecordingId=${encodeURIComponent(id)}`,
+    }
+  })
+  return { ok: true, data }
+}
+
 export default async function handler(req, res) {
   const TOKEN = process.env.VOIP_API_TOKEN
   if (!TOKEN) {
@@ -22,6 +48,22 @@ export default async function handler(req, res) {
   // ── POST actions ──────────────────────────────────────────────────────
   if (req.method === 'POST') {
     const { action, webhookUrl, customerToken } = req.body ?? {}
+
+    // Fetch all recordings (no date filter)
+    if (action === 'all') {
+      try {
+        const r = await fetch(`${BASE}/callRecordingListV1.php`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body:    new URLSearchParams({ token: TOKEN }).toString(),
+        })
+        const text = await r.text()
+        if (r.status !== 200) return res.json({ ok: false, data: [], error: `VoIP server returned ${r.status}` })
+        return res.json(parseCsvOuter(text))
+      } catch (err) {
+        return res.status(500).json({ ok: false, data: [], error: String(err) })
+      }
+    }
 
     // Check token + list registered webhooks
     if (action === 'check') {
@@ -47,33 +89,6 @@ export default async function handler(req, res) {
     if (action === 'probe') {
       const { from, to } = req.body ?? {}
 
-      // Helper: parse and return CSV response
-      function parseCsv(text) {
-        const lines = text.trim().split('\n').filter(Boolean)
-        if (lines.length < 2) return { ok: true, data: [], message: 'No recordings in this date range' }
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
-        const data = lines.slice(1).map(line => {
-          const cols = line.split(',').map(c => c.trim())
-          const row = {}
-          headers.forEach((h, i) => { row[h] = cols[i] ?? '' })
-          const dur = parseInt(row.duration ?? '0') || 0
-          const id  = row.id ?? ''
-          return {
-            id,
-            callID:      '',
-            duration:    dur,
-            durationFmt: `${String(Math.floor(dur / 60)).padStart(2, '0')}:${String(dur % 60).padStart(2, '0')}`,
-            datetime:    row.datetime ?? '',
-            source:      row.source ?? '',
-            destination: row.destination ?? '',
-            isProtected: false,
-            filename:    row.filename ?? '',
-            url:         `${BASE}/callRecordingGetV1.php?callRecordingId=${encodeURIComponent(id)}`,
-          }
-        })
-        return { ok: true, data }
-      }
-
       // Always try token-only first to confirm the endpoint returns any data at all
       let tokenOnlyResult = null
       try {
@@ -84,7 +99,7 @@ export default async function handler(req, res) {
         })
         const t0 = await r0.text()
         if (r0.status === 200) {
-          const parsed = parseCsv(t0)
+          const parsed = parseCsvOuter(t0)
           tokenOnlyResult = parsed
           // If no dates requested, return all recordings
           if (!from && !to) return res.json({ ...parsed, note: `token-only: ${parsed.data?.length ?? 0} total recordings` })
@@ -136,7 +151,7 @@ export default async function handler(req, res) {
             attempts.push({ sKey, eKey, fmt: fmts[i], status: r.status, rows, preview: text.slice(0, 100) })
 
             // Return on first 200 that has actual data rows
-            if (r.status === 200 && rows > 0) return res.json(parseCsv(text))
+            if (r.status === 200 && rows > 0) return res.json(parseCsvOuter(text))
           } catch (err) {
             attempts.push({ sKey, eKey, fmt: fmts[i], error: String(err) })
           }
