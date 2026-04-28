@@ -78,6 +78,7 @@ export interface FirebaseEmployee {
   // Status details
   statusReason?: string
   statusChangedDate?: string
+  statusManuallySet?: boolean
   // RotaCloud integration
   rotacloudId?: number
 }

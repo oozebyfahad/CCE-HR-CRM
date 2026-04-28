@@ -32,7 +32,7 @@ const EMPTY: Omit<FirebaseEmployee, 'id'> = {
   payType: 'fixed_monthly', salary: undefined, hourlyRate: undefined,
   monthlyHours: 160, overtimeRate: undefined, eobi: false,
   fuelAllowance: undefined, gymAllowance: undefined, securityDeduction: undefined,
-  statusReason: '', statusChangedDate: '',
+  statusReason: '', statusChangedDate: '', statusManuallySet: false,
 }
 
 interface Props {
@@ -83,17 +83,13 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
       setReasonDate(new Date().toISOString().split('T')[0])
       setPendingStatus(newStatus)
     } else {
-      set('status', newStatus)
-      set('statusReason', '')
-      set('statusChangedDate', '')
+      setForm(prev => ({ ...prev, status: newStatus, statusManuallySet: true, statusReason: '', statusChangedDate: '' }))
     }
   }
 
   const confirmStatusChange = () => {
     if (!pendingStatus) return
-    set('status', pendingStatus)
-    set('statusReason', reasonText.trim())
-    set('statusChangedDate', reasonDate)
+    setForm(prev => ({ ...prev, status: pendingStatus, statusManuallySet: true, statusReason: reasonText.trim(), statusChangedDate: reasonDate }))
     setPendingStatus(null)
   }
 
