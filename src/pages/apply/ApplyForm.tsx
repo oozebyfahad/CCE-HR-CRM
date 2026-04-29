@@ -5,7 +5,7 @@ import { checkPreviouslyRejected } from '../../hooks/useFirebaseApplicants'
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 
-const DEPARTMENTS = ['Operations', 'Customer Service', 'Dispatch', 'Admin', 'Management', 'IT']
+const DEPARTMENTS = ['Admin', 'Management', 'Operations', 'Marketing']
 const POSITIONS   = [
   'Dispatcher', 'Senior Dispatcher', 'Night Shift Dispatcher',
   'Customer Service Agent', 'Customer Service Team Lead',
