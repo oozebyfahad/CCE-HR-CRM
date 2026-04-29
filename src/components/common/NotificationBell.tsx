@@ -48,7 +48,11 @@ function timeAgo(ts: { seconds: number } | null): string {
   return `${Math.floor(diff / 1440)}d ago`
 }
 
-export default function NotificationBell() {
+interface Props {
+  placement?: 'top-right' | 'bottom-sidebar'
+}
+
+export default function NotificationBell({ placement = 'top-right' }: Props) {
   const user   = useAppSelector(s => s.auth.user)
   const [open, setOpen]   = useState(false)
   const [notes, setNotes] = useState<AppNotification[]>([])
@@ -103,7 +107,7 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 bottom-11 w-80 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden">
+        <div className={`absolute w-80 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-hidden ${placement === 'bottom-sidebar' ? 'bottom-11 left-0' : 'top-11 right-0'}`}>
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/80">
             <div className="flex items-center gap-2">

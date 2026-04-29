@@ -107,12 +107,12 @@ export default function Sidebar() {
               <p className="text-white text-xs font-semibold truncate">{user?.name ?? 'HR Manager'}</p>
               <p className="text-gray-400 text-[10px] truncate capitalize">{user?.role?.replace('_', ' ') ?? 'Administrator'}</p>
             </div>
-            <NotificationBell />
+            <NotificationBell placement="bottom-sidebar" />
           </div>
         )}
         {collapsed && (
           <div className="flex justify-center py-1">
-            <NotificationBell />
+            <NotificationBell placement="bottom-sidebar" />
           </div>
         )}
         <button
