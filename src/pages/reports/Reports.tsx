@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -14,6 +14,10 @@ import { useFirebaseEmployees, type FirebaseEmployee } from '../../hooks/useFire
 import { useFirebasePayroll } from '../../hooks/useFirebasePayroll'
 import { fmtPKR } from '../../utils/payroll'
 import { cn } from '../../utils/cn'
+import {
+  fetchRotaAttendance, fetchRotaShifts, fetchRotaLeave, fetchRotaLeaveTypes, monthToUnix,
+  type RotaAttendance, type RotaShift, type RotaLeave, type RotaLeaveType,
+} from '../../services/rotacloud'
 
 // ── Constants ─────────────────────────────────────────────────────────
 const DC = ['#2E86C1','#10B981','#F59E0B','#8B5CF6','#EF4444','#EC4899','#6366F1','#14B8A6','#F97316','#84CC16']
@@ -219,115 +223,208 @@ function HeadcountReport({ employees }: { employees: FirebaseEmployee[] }) {
 // 2. ABSENTEEISM REPORT
 // ─────────────────────────────────────────────────────────────────────
 
-const ABS_TREND = ['May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr'].map((month, i) => ({
-  month, rate: parseFloat((2.5 + Math.sin(i * 0.8) * 1.8 + (i === 0 || i === 11 ? 2 : 0)).toFixed(1)),
-}))
+function AbsenteeismReport({ employees }: { employees: FirebaseEmployee[] }) {
+  const nowRef = useRef(new Date())
+  const defaultMonth = `${nowRef.current.getFullYear()}-${String(nowRef.current.getMonth() + 1).padStart(2, '0')}`
 
-const ABS_BY_DEPT = [
-  { dept: 'Operations', rate: 6.2, absences: 18 },
-  { dept: 'Dispatch',   rate: 5.8, absences: 14 },
-  { dept: 'Customer Service', rate: 4.1, absences: 9 },
-  { dept: 'Admin',      rate: 3.2, absences: 6 },
-  { dept: 'QA',         rate: 2.8, absences: 5 },
-  { dept: 'IT',         rate: 2.1, absences: 3 },
-  { dept: 'HR',         rate: 1.5, absences: 2 },
-  { dept: 'Finance',    rate: 1.2, absences: 2 },
-]
+  const [month,     setMonth]     = useState(defaultMonth)
+  const [deptF,     setDeptF]     = useState('All')
+  const [loading,   setLoading]   = useState(false)
+  const [rawAtt,    setRawAtt]    = useState<RotaAttendance[]>([])
+  const [rawShifts, setRawShifts] = useState<RotaShift[]>([])
+  const fetchedRef = useRef(false)
 
-const DOW = [
-  { day: 'Mon', absences: 42, pct: 7.2 },
-  { day: 'Tue', absences: 18, pct: 3.1 },
-  { day: 'Wed', absences: 14, pct: 2.4 },
-  { day: 'Thu', absences: 16, pct: 2.7 },
-  { day: 'Fri', absences: 38, pct: 6.5 },
-]
+  const rotaToEmp = useMemo(() => {
+    const m = new Map<number, FirebaseEmployee>()
+    employees.forEach(e => { if (e.rotacloudId) m.set(e.rotacloudId, e) })
+    return m
+  }, [employees])
 
-function AbsenteeismReport() {
-  const [deptF, setDeptF] = useState('All')
-  const filteredDepts = deptF === 'All' ? ABS_BY_DEPT : ABS_BY_DEPT.filter(d => d.dept === deptF)
-  const totalDays  = ABS_BY_DEPT.reduce((s, d) => s + d.absences, 0)
-  const avgRate    = (ABS_BY_DEPT.reduce((s, d) => s + d.rate, 0) / ABS_BY_DEPT.length).toFixed(1)
-  const highDepts  = ABS_BY_DEPT.filter(d => d.rate > 5)
-  const maxAbs     = Math.max(...DOW.map(d => d.absences))
-  const monFriHigh = DOW[0].pct > DOW[2].pct * 1.5 && DOW[4].pct > DOW[2].pct * 1.5
+  const depts = useMemo(() => [...new Set(employees.map(e => e.department ?? 'Unknown'))].sort(), [employees])
+
+  const monthOptions = useMemo(() => {
+    const opts: { val: string; label: string }[] = []
+    const now = new Date()
+    for (let i = 0; i < 12; i++) {
+      const d   = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      opts.push({ val, label: d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) })
+    }
+    return opts
+  }, [])
+
+  useEffect(() => {
+    if (employees.length === 0 || fetchedRef.current) return
+    fetchedRef.current = true
+    let cancelled = false
+    const load = async () => {
+      setLoading(true)
+      try {
+        const now    = new Date()
+        const curMs  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+        const ref11  = new Date(now.getFullYear(), now.getMonth() - 11, 1)
+        const refMs  = `${ref11.getFullYear()}-${String(ref11.getMonth() + 1).padStart(2, '0')}`
+        const { start } = monthToUnix(refMs)
+        const { end }   = monthToUnix(curMs)
+        const [att, shifts] = await Promise.all([fetchRotaAttendance(start, end), fetchRotaShifts(start, end)])
+        if (!cancelled) { setRawAtt(att); setRawShifts(shifts) }
+      } catch { /* no RotaCloud key */ }
+      if (!cancelled) setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [employees.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stats = useMemo(() => {
+    const knownIds    = new Set(rotaToEmp.keys())
+    const validShifts = rawShifts.filter(s => s.published && !s.deleted && !s.open && knownIds.has(s.user))
+    const attKeys     = new Set<string>()
+    rawAtt.filter(a => !a.deleted && a.in_time_clocked).forEach(a => {
+      const d = new Date(a.in_time * 1000)
+      attKeys.add(`${a.user}_${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)
+    })
+    const { start: cS, end: cE } = monthToUnix(month)
+    const curShifts    = validShifts.filter(s => s.start_time >= cS && s.start_time <= cE)
+    const isAbsent     = (s: RotaShift) => {
+      const d = new Date(s.start_time * 1000)
+      return !attKeys.has(`${s.user}_${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)
+    }
+    const absentShifts = curShifts.filter(isAbsent)
+    const totalLate    = rawAtt.filter(a => !a.deleted && a.in_time_clocked && a.in_time >= cS && a.in_time <= cE && a.minutes_late > 0).length
+
+    const dMap = new Map<string, { s: number; a: number }>()
+    curShifts.forEach(s => {
+      const dept = rotaToEmp.get(s.user)?.department ?? 'Unknown'
+      const v = dMap.get(dept) ?? { s: 0, a: 0 }; v.s++; dMap.set(dept, v)
+    })
+    absentShifts.forEach(s => {
+      const dept = rotaToEmp.get(s.user)?.department ?? 'Unknown'
+      const v = dMap.get(dept) ?? { s: 0, a: 0 }; v.a++; dMap.set(dept, v)
+    })
+    const deptData = [...dMap.entries()]
+      .map(([dept, { s, a }]) => ({ dept, rate: s > 0 ? +(a / s * 100).toFixed(1) : 0, absences: a }))
+      .sort((x, y) => y.rate - x.rate)
+
+    const DOW_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+    const dowS: Record<string,number> = {}, dowA: Record<string,number> = {}
+    curShifts.forEach(s => { const d = DOW_NAMES[new Date(s.start_time*1000).getDay()]; dowS[d]=(dowS[d]??0)+1 })
+    absentShifts.forEach(s => { const d = DOW_NAMES[new Date(s.start_time*1000).getDay()]; dowA[d]=(dowA[d]??0)+1 })
+    const dowData = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+      .filter(d => (dowS[d]??0) > 0)
+      .map(d => ({ day: d, absences: dowA[d]??0, pct: +((dowA[d]??0)/(dowS[d]??1)*100).toFixed(1) }))
+
+    const trend: { month: string; rate: number }[] = []
+    const now = new Date()
+    for (let i = 11; i >= 0; i--) {
+      const td = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const ms = `${td.getFullYear()}-${String(td.getMonth()+1).padStart(2,'0')}`
+      const { start: mS, end: mE } = monthToUnix(ms)
+      const mShifts = validShifts.filter(s => s.start_time >= mS && s.start_time <= mE)
+      trend.push({ month: td.toLocaleDateString('en-GB', { month: 'short' }), rate: mShifts.length > 0 ? +(mShifts.filter(isAbsent).length/mShifts.length*100).toFixed(1) : 0 })
+    }
+    return { totalAbsent: absentShifts.length, totalLate, deptData, dowData, trend }
+  }, [rawAtt, rawShifts, month, rotaToEmp])
+
+  const hasRota   = rotaToEmp.size > 0
+  const filtered  = deptF === 'All' ? stats.deptData : stats.deptData.filter(d => d.dept === deptF)
+  const highDepts = stats.deptData.filter(d => d.rate > 5)
+  const maxAbs    = Math.max(...stats.dowData.map(d => d.absences), 1)
+  const monPct    = stats.dowData.find(d => d.day==='Mon')?.pct ?? 0
+  const wedPct    = stats.dowData.find(d => d.day==='Wed')?.pct ?? 0
+  const friPct    = stats.dowData.find(d => d.day==='Fri')?.pct ?? 0
+  const monFriHigh = wedPct > 0 && monPct > wedPct * 1.5 && friPct > wedPct * 1.5
 
   return (
     <div className="space-y-5">
       <div>
         <h2 className="page-header">Absence & Attendance Analysis</h2>
-        <p className="page-sub">Monthly absence rate trend and department breakdown · Mock data (RotaCloud integration pending)</p>
+        <p className="page-sub">{hasRota ? 'Monthly absence rate from RotaCloud shifts & attendance' : 'Link RotaCloud IDs to employees to enable live data'}</p>
       </div>
 
-      <div className="flex gap-3 flex-wrap">
-        <FilterSelect value={deptF} onChange={setDeptF}>
-          <option value="All">All Departments</option>
-          {ABS_BY_DEPT.map(d => <option key={d.dept}>{d.dept}</option>)}
-        </FilterSelect>
-      </div>
+      {!hasRota && <Insight type="warning">No RotaCloud IDs linked to employees. Add <strong>rotacloudId</strong> in employee profiles to enable live absence tracking.</Insight>}
+      {loading && <div className="text-xs text-gray-400 py-6 text-center">Loading RotaCloud data…</div>}
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard label="Total Absence Days"   value={totalDays}          icon={UserX}       color="#EF4444" sub="This month" />
-        <StatCard label="Avg Absence Rate"     value={`${avgRate}%`}      icon={Activity}    color="#F97316" />
-        <StatCard label="Most Absent Dept"     value={ABS_BY_DEPT[0].dept} icon={AlertCircle} color="#8B5CF6" />
-        <StatCard label="Late Arrivals"        value={23}                  icon={Clock}       color="#F59E0B" sub="This month" />
-      </div>
-
-      <div className="space-y-2">
-        {highDepts.map(d => (
-          <Insight key={d.dept} type="danger"><strong>{d.dept}</strong> absence rate of <strong>{d.rate}%</strong> exceeds the 5% warning threshold.</Insight>
-        ))}
-        {monFriHigh && (
-          <Insight type="warning">Monday and Friday absences are significantly higher than mid-week — potential pattern abuse detected.</Insight>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card p-5">
-          <SectionTitle>Absence Rate Trend — 12 Months</SectionTitle>
-          <ResponsiveContainer width="100%" height={180} className="mt-3">
-            <LineChart data={ABS_TREND} margin={{ left: -10, right: 8, top: 4, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F0F4F8" />
-              <XAxis dataKey="month" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} unit="%" domain={[0, 12]} />
-              <Tooltip contentStyle={TT} formatter={v => [`${v}%`, 'Absence Rate']} />
-              <Line type="monotone" dataKey="rate" stroke="#EF4444" strokeWidth={2} dot={{ r: 3, fill: '#EF4444' }} name="Absence %" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="card p-5">
-          <SectionTitle>Absence by Department</SectionTitle>
-          <ResponsiveContainer width="100%" height={200} className="mt-3">
-            <BarChart layout="vertical" data={filteredDepts} barSize={12} margin={{ left: 4, right: 16, top: 4, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F0F4F8" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} unit="%" />
-              <YAxis type="category" dataKey="dept" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} width={88} />
-              <Tooltip contentStyle={TT} formatter={v => [`${v}%`, 'Rate']} />
-              <Bar dataKey="rate" fill="#EF4444" radius={[0, 4, 4, 0]} name="Absence Rate" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="card p-5 lg:col-span-2">
-          <SectionTitle>Absence Frequency by Day of Week</SectionTitle>
-          <div className="mt-5 flex items-end justify-center gap-6">
-            {DOW.map(d => {
-              const intensity = d.absences / maxAbs
-              const isHigh    = d.pct > 5
-              return (
-                <div key={d.day} className="flex flex-col items-center gap-2">
-                  <span className="text-xs font-semibold text-gray-500">{d.absences}</span>
-                  <div className="w-14 rounded-lg transition-all"
-                    style={{ height: `${Math.max(24, intensity * 120)}px`, backgroundColor: isHigh ? '#EF4444' : `rgba(46,134,193,${0.2 + intensity * 0.8})` }} />
-                  <span className={cn('text-xs font-bold', isHigh ? 'text-red-600' : 'text-gray-500')}>{d.day}</span>
-                  <span className="text-[10px] text-gray-400">{d.pct}%</span>
-                </div>
-              )
-            })}
+      {hasRota && !loading && (
+        <>
+          <div className="flex gap-3 flex-wrap">
+            <FilterSelect value={month} onChange={setMonth}>
+              {monthOptions.map(o => <option key={o.val} value={o.val}>{o.label}</option>)}
+            </FilterSelect>
+            <FilterSelect value={deptF} onChange={setDeptF}>
+              <option value="All">All Departments</option>
+              {depts.map(d => <option key={d}>{d}</option>)}
+            </FilterSelect>
           </div>
-          <p className="text-[10px] text-gray-400 text-center mt-3">Bar height = absences · Red = above 5% · % = share of scheduled shifts</p>
-        </div>
-      </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard label="Absent Shifts"    value={stats.totalAbsent}                                                                                       icon={UserX}       color="#EF4444" sub="This month" />
+            <StatCard label="Avg Absence Rate" value={stats.deptData.length > 0 ? `${(stats.deptData.reduce((s,d)=>s+d.rate,0)/stats.deptData.length).toFixed(1)}%` : '—'} icon={Activity}    color="#F97316" />
+            <StatCard label="Most Absent Dept" value={stats.deptData[0]?.dept ?? '—'}                                                                          icon={AlertCircle} color="#8B5CF6" />
+            <StatCard label="Late Arrivals"    value={stats.totalLate}                                                                                         icon={Clock}       color="#F59E0B" sub="This month" />
+          </div>
+
+          <div className="space-y-2">
+            {highDepts.map(d => <Insight key={d.dept} type="danger"><strong>{d.dept}</strong> absence rate of <strong>{d.rate}%</strong> exceeds the 5% warning threshold.</Insight>)}
+            {monFriHigh && <Insight type="warning">Monday and Friday absences are significantly higher than mid-week — potential pattern detected.</Insight>}
+            {stats.totalAbsent === 0 && rawShifts.length > 0 && <Insight type="info">No absences recorded for this period — all scheduled shifts were attended.</Insight>}
+            {rawShifts.length === 0 && <Insight type="info">No shift data returned from RotaCloud for this period. Check that the API key is configured and shifts are published.</Insight>}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="card p-5">
+              <SectionTitle>Absence Rate Trend — 12 Months</SectionTitle>
+              <ResponsiveContainer width="100%" height={180} className="mt-3">
+                <LineChart data={stats.trend} margin={{ left: -10, right: 8, top: 4, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F0F4F8" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} unit="%" domain={[0, 'auto']} />
+                  <Tooltip contentStyle={TT} formatter={v => [`${v}%`, 'Absence Rate']} />
+                  <Line type="monotone" dataKey="rate" stroke="#EF4444" strokeWidth={2} dot={{ r: 3, fill: '#EF4444' }} name="Absence %" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="card p-5">
+              <SectionTitle>Absence by Department</SectionTitle>
+              {filtered.length === 0
+                ? <div className="h-40 flex items-center justify-center text-xs text-gray-400">No absence data for selected filters</div>
+                : <ResponsiveContainer width="100%" height={200} className="mt-3">
+                    <BarChart layout="vertical" data={filtered} barSize={12} margin={{ left: 4, right: 16, top: 4, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F0F4F8" horizontal={false} />
+                      <XAxis type="number" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} unit="%" />
+                      <YAxis type="category" dataKey="dept" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} width={88} />
+                      <Tooltip contentStyle={TT} formatter={v => [`${v}%`, 'Rate']} />
+                      <Bar dataKey="rate" fill="#EF4444" radius={[0, 4, 4, 0]} name="Absence Rate" />
+                    </BarChart>
+                  </ResponsiveContainer>
+              }
+            </div>
+
+            <div className="card p-5 lg:col-span-2">
+              <SectionTitle>Absence Frequency by Day of Week</SectionTitle>
+              {stats.dowData.length === 0
+                ? <div className="h-32 flex items-center justify-center text-xs text-gray-400">No shift data for selected month</div>
+                : <div className="mt-5 flex items-end justify-center gap-6">
+                    {stats.dowData.map(d => {
+                      const intensity = d.absences / maxAbs
+                      const isHigh    = d.pct > 5
+                      return (
+                        <div key={d.day} className="flex flex-col items-center gap-2">
+                          <span className="text-xs font-semibold text-gray-500">{d.absences}</span>
+                          <div className="w-14 rounded-lg transition-all"
+                            style={{ height: `${Math.max(24, intensity * 120)}px`, backgroundColor: isHigh ? '#EF4444' : `rgba(46,134,193,${0.2 + intensity * 0.8})` }} />
+                          <span className={cn('text-xs font-bold', isHigh ? 'text-red-600' : 'text-gray-500')}>{d.day}</span>
+                          <span className="text-[10px] text-gray-400">{d.pct}%</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+              }
+              <p className="text-[10px] text-gray-400 text-center mt-3">Bar height = absent shifts · Red = above 5% · % = share of scheduled shifts</p>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -336,133 +433,186 @@ function AbsenteeismReport() {
 // 3. LEAVE USAGE REPORT
 // ─────────────────────────────────────────────────────────────────────
 
-const LEAVE_EMP = [
-  { name: 'Ahmed Raza',    dept: 'Operations', annualTotal: 14, annualTaken: 12, sickTotal: 10, sickTaken: 2 },
-  { name: 'Sara Khan',     dept: 'HR',         annualTotal: 14, annualTaken: 0,  sickTotal: 10, sickTaken: 1 },
-  { name: 'Bilal Ahmed',   dept: 'Dispatch',   annualTotal: 14, annualTaken: 16, sickTotal: 10, sickTaken: 3 },
-  { name: 'Fatima Malik',  dept: 'Finance',    annualTotal: 14, annualTaken: 4,  sickTotal: 10, sickTaken: 0 },
-  { name: 'Usman Ali',     dept: 'IT',         annualTotal: 14, annualTaken: 11, sickTotal: 10, sickTaken: 5 },
-  { name: 'Zara Hussain',  dept: 'Admin',      annualTotal: 14, annualTaken: 0,  sickTotal: 10, sickTaken: 0 },
-  { name: 'Omar Sheikh',   dept: 'Operations', annualTotal: 14, annualTaken: 7,  sickTotal: 10, sickTaken: 8 },
-  { name: 'Nadia Iqbal',   dept: 'Dispatch',   annualTotal: 14, annualTaken: 13, sickTotal: 10, sickTaken: 4 },
-  { name: 'Hamza Qureshi', dept: 'QA',         annualTotal: 14, annualTaken: 2,  sickTotal: 10, sickTaken: 1 },
-  { name: 'Aisha Tariq',   dept: 'Management', annualTotal: 14, annualTaken: 9,  sickTotal: 10, sickTaken: 0 },
-]
+function LeaveUsageReport({ employees }: { employees: FirebaseEmployee[] }) {
+  const currentYear = new Date().getFullYear()
+  const [yearF,    setYearF]    = useState(String(currentYear))
+  const [deptF,    setDeptF]    = useState('All')
+  const [loading,  setLoading]  = useState(false)
+  const [leaveTypes, setLeaveTypes] = useState<RotaLeaveType[]>([])
+  const [empLeave,   setEmpLeave]   = useState<Map<number, RotaLeave[]>>(new Map())
+  const fetchedRef = useRef(false)
 
-const LEAVE_TREND = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((month, i) => ({
-  month, days: Math.round(8 + Math.sin(i * 0.5) * 5 + (i === 7 || i === 11 ? 6 : 0)),
-}))
+  const rotaEmps = useMemo(() => employees.filter(e => e.rotacloudId), [employees])
+  const depts    = useMemo(() => [...new Set(employees.map(e => e.department ?? 'Unknown'))].sort(), [employees])
 
-const LEAVE_TYPES = [
-  { type: 'Annual', days: 74, color: '#2E86C1' },
-  { type: 'Sick',   days: 24, color: '#EF4444' },
-  { type: 'Unpaid', days: 8,  color: '#9CA3AF' },
-  { type: 'Compassionate', days: 3, color: '#8B5CF6' },
-]
+  useEffect(() => {
+    if (rotaEmps.length === 0 || fetchedRef.current) return
+    fetchedRef.current = true
+    let cancelled = false
+    const load = async () => {
+      setLoading(true)
+      try {
+        const types = await fetchRotaLeaveTypes().catch(() => [] as RotaLeaveType[])
+        if (!cancelled) setLeaveTypes(types)
+        const results = await Promise.allSettled(
+          rotaEmps.map(e => fetchRotaLeave(e.rotacloudId!).then(l => ({ rotaId: e.rotacloudId!, leave: l })))
+        )
+        const m = new Map<number, RotaLeave[]>()
+        results.forEach(r => { if (r.status === 'fulfilled') m.set(r.value.rotaId, r.value.leave) })
+        if (!cancelled) setEmpLeave(m)
+      } catch { /* no RotaCloud key */ }
+      if (!cancelled) setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [rotaEmps.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
-function LeaveUsageReport() {
-  const [deptF, setDeptF] = useState('All')
-  const depts = [...new Set(LEAVE_EMP.map(e => e.dept))]
-  const emp   = deptF === 'All' ? LEAVE_EMP : LEAVE_EMP.filter(e => e.dept === deptF)
+  const empStats = useMemo(() => {
+    return employees
+      .filter(e => e.rotacloudId && (deptF === 'All' || e.department === deptF))
+      .map(e => {
+        const taken = (empLeave.get(e.rotacloudId!) ?? [])
+          .filter(l => l.status === 'approved' && l.start_date.startsWith(yearF))
+          .reduce((s, l) => s + l.days, 0)
+        const annAlloc = e.leavePolicy?.annual?.total ?? 14
+        return {
+          name: e.name.split(' ')[0], fullName: e.name,
+          dept: e.department ?? 'Unknown',
+          taken, annAlloc,
+          remaining: Math.max(0, annAlloc - taken),
+          over: Math.max(0, taken - annAlloc),
+        }
+      })
+  }, [employees, empLeave, yearF, deptF])
 
-  const totalDays = emp.reduce((s, e) => s + e.annualTaken + e.sickTaken, 0)
-  const avgPerEmp = emp.length > 0 ? (totalDays / emp.length).toFixed(1) : 0
-  const over80    = emp.filter(e => e.annualTaken >= e.annualTotal * 0.8).length
-  const zeroLeave = emp.filter(e => e.annualTaken === 0).length
-  const exceeded  = emp.filter(e => e.annualTaken > e.annualTotal)
+  const typeBreakdown = useMemo(() => {
+    const m = new Map<number, number>()
+    empLeave.forEach(leaves => {
+      leaves.filter(l => l.status === 'approved' && l.start_date.startsWith(yearF))
+        .forEach(l => { m.set(l.leave_type, (m.get(l.leave_type) ?? 0) + l.days) })
+    })
+    return [...m.entries()]
+      .map(([tid, days], i) => ({ type: leaveTypes.find(t => t.id === tid)?.name ?? `Type ${tid}`, days, color: DC[i % DC.length] }))
+      .sort((a, b) => b.days - a.days)
+  }, [empLeave, leaveTypes, yearF])
 
-  const barData = emp.map(e => ({
-    name:      e.name.split(' ')[0],
-    taken:     e.annualTaken,
-    remaining: Math.max(0, e.annualTotal - e.annualTaken),
-    over:      Math.max(0, e.annualTaken - e.annualTotal),
-  }))
+  const monthlyTrend = useMemo(() => {
+    return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((label, i) => {
+      const prefix = `${yearF}-${String(i + 1).padStart(2, '0')}`
+      let days = 0
+      empLeave.forEach(leaves => {
+        leaves.filter(l => l.status === 'approved' && l.start_date.startsWith(prefix)).forEach(l => { days += l.days })
+      })
+      return { month: label, days }
+    })
+  }, [empLeave, yearF])
+
+  const totalDays = empStats.reduce((s, e) => s + e.taken, 0)
+  const avgPerEmp = empStats.length > 0 ? (totalDays / empStats.length).toFixed(1) : '0'
+  const over80    = empStats.filter(e => e.taken >= e.annAlloc * 0.8).length
+  const zeroLeave = empStats.filter(e => e.taken === 0).length
+  const exceeded  = empStats.filter(e => e.taken > e.annAlloc)
+  const hasRota   = rotaEmps.length > 0
+  const yearOptions = [currentYear, currentYear - 1, currentYear - 2].map(String)
 
   return (
     <div className="space-y-5">
       <div>
         <h2 className="page-header">Leave Usage by Employee</h2>
-        <p className="page-sub">Leave taken vs allowance · Mock data (RotaCloud integration pending)</p>
+        <p className="page-sub">{hasRota ? 'Leave taken vs allowance from RotaCloud' : 'Link RotaCloud IDs to employees to enable live data'}</p>
       </div>
 
-      <div className="flex gap-3 flex-wrap">
-        <FilterSelect value={deptF} onChange={setDeptF}>
-          <option value="All">All Departments</option>
-          {depts.map(d => <option key={d}>{d}</option>)}
-        </FilterSelect>
-      </div>
+      {!hasRota && <Insight type="warning">No RotaCloud IDs linked to employees. Add <strong>rotacloudId</strong> in employee profiles to enable live leave tracking.</Insight>}
+      {loading && <div className="text-xs text-gray-400 py-6 text-center">Loading leave records…</div>}
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard label="Total Days Taken"    value={totalDays}       icon={Calendar}      color="#F59E0B" />
-        <StatCard label="Avg Per Employee"    value={avgPerEmp}       icon={Activity}      color="#2E86C1" sub="days" />
-        <StatCard label="Over 80% Allowance"  value={over80}          icon={AlertTriangle} color="#F97316" sub="employees" />
-        <StatCard label="Zero Leave Taken"    value={zeroLeave}       icon={AlertCircle}   color="#EF4444" sub="potential burnout" />
-      </div>
+      {hasRota && !loading && (
+        <>
+          <div className="flex gap-3 flex-wrap">
+            <FilterSelect value={yearF} onChange={setYearF}>
+              {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+            </FilterSelect>
+            <FilterSelect value={deptF} onChange={setDeptF}>
+              <option value="All">All Departments</option>
+              {depts.map(d => <option key={d}>{d}</option>)}
+            </FilterSelect>
+          </div>
 
-      <div className="space-y-2">
-        {zeroLeave > 0 && (
-          <Insight type="warning"><strong>{zeroLeave} employee{zeroLeave > 1 ? 's' : ''}</strong> {zeroLeave > 1 ? 'have' : 'has'} taken zero leave — potential burnout risk.</Insight>
-        )}
-        {exceeded.length > 0 && (
-          <Insight type="danger"><strong>{exceeded.map(e => e.name).join(', ')}</strong> {exceeded.length > 1 ? 'have' : 'has'} exceeded their annual leave allowance.</Insight>
-        )}
-      </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard label="Total Days Taken"   value={totalDays}  icon={Calendar}      color="#F59E0B" />
+            <StatCard label="Avg Per Employee"   value={avgPerEmp}  icon={Activity}      color="#2E86C1" sub="days" />
+            <StatCard label="Over 80% Allowance" value={over80}     icon={AlertTriangle} color="#F97316" sub="employees" />
+            <StatCard label="Zero Leave Taken"   value={zeroLeave}  icon={AlertCircle}   color="#EF4444" sub="potential burnout" />
+          </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card p-5 lg:col-span-2">
-          <SectionTitle>Annual Leave: Taken vs Remaining</SectionTitle>
-          <ResponsiveContainer width="100%" height={200} className="mt-3">
-            <BarChart data={barData} barSize={16} margin={{ left: -10, right: 8, top: 4, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F0F4F8" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
-              <Tooltip contentStyle={TT} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="taken"     stackId="a" fill="#2E86C1" name="Taken" />
-              <Bar dataKey="remaining" stackId="a" fill="#DBEAFE" name="Remaining" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="over"      fill="#EF4444" name="Over Allowance" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+          <div className="space-y-2">
+            {zeroLeave > 0 && <Insight type="warning"><strong>{zeroLeave} employee{zeroLeave > 1 ? 's' : ''}</strong> {zeroLeave > 1 ? 'have' : 'has'} taken zero leave this year — potential burnout risk.</Insight>}
+            {exceeded.length > 0 && <Insight type="danger"><strong>{exceeded.map(e => e.fullName).join(', ')}</strong> {exceeded.length > 1 ? 'have' : 'has'} exceeded their annual leave allowance.</Insight>}
+            {totalDays === 0 && empLeave.size > 0 && <Insight type="info">No approved leave found for {yearF}. Records may still be pending approval in RotaCloud.</Insight>}
+          </div>
 
-        <div className="card p-5">
-          <SectionTitle>Leave Type Breakdown</SectionTitle>
-          <div className="flex items-center gap-4 mt-4">
-            <ResponsiveContainer width={130} height={130}>
-              <PieChart>
-                <Pie data={LEAVE_TYPES.map(t => ({ name: t.type, value: t.days }))} innerRadius={35} outerRadius={55} dataKey="value" paddingAngle={3}>
-                  {LEAVE_TYPES.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Pie>
-                <Tooltip contentStyle={TT} formatter={v => [`${v} days`, '']} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="space-y-2 flex-1">
-              {LEAVE_TYPES.map(t => (
-                <div key={t.type} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: t.color }} />
-                    <span className="text-xs text-gray-500">{t.type}</span>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="card p-5 lg:col-span-2">
+              <SectionTitle>Annual Leave: Taken vs Remaining</SectionTitle>
+              {empStats.length === 0
+                ? <div className="h-40 flex items-center justify-center text-xs text-gray-400">No employees with RotaCloud IDs in this department</div>
+                : <ResponsiveContainer width="100%" height={Math.max(160, empStats.length * 28)} className="mt-3">
+                    <BarChart data={empStats} barSize={16} margin={{ left: -10, right: 8, top: 4, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F0F4F8" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+                      <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                      <Tooltip contentStyle={TT} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="taken"     stackId="a" fill="#2E86C1" name="Taken" />
+                      <Bar dataKey="remaining" stackId="a" fill="#DBEAFE" name="Remaining" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="over"      fill="#EF4444" name="Over Allowance" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+              }
+            </div>
+
+            <div className="card p-5">
+              <SectionTitle>Leave Type Breakdown</SectionTitle>
+              {typeBreakdown.length === 0
+                ? <div className="h-40 flex items-center justify-center text-xs text-gray-400">No leave data for {yearF}</div>
+                : <div className="flex items-center gap-4 mt-4">
+                    <ResponsiveContainer width={130} height={130}>
+                      <PieChart>
+                        <Pie data={typeBreakdown.map(t => ({ name: t.type, value: t.days }))} innerRadius={35} outerRadius={55} dataKey="value" paddingAngle={3}>
+                          {typeBreakdown.map((d, i) => <Cell key={i} fill={d.color} />)}
+                        </Pie>
+                        <Tooltip contentStyle={TT} formatter={v => [`${v} days`, '']} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="space-y-2 flex-1">
+                      {typeBreakdown.map(t => (
+                        <div key={t.type} className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: t.color }} />
+                            <span className="text-xs text-gray-500">{t.type}</span>
+                          </div>
+                          <span className="text-xs font-semibold text-secondary">{t.days}d</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <span className="text-xs font-semibold text-secondary">{t.days}d</span>
-                </div>
-              ))}
+              }
+            </div>
+
+            <div className="card p-5">
+              <SectionTitle>Leave Usage Trend — {yearF}</SectionTitle>
+              <ResponsiveContainer width="100%" height={150} className="mt-3">
+                <LineChart data={monthlyTrend} margin={{ left: -10, right: 8, top: 4, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F0F4F8" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip contentStyle={TT} />
+                  <Line type="monotone" dataKey="days" stroke="#F59E0B" strokeWidth={2} dot={{ r: 3, fill: '#F59E0B' }} name="Days" />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           </div>
-        </div>
-
-        <div className="card p-5">
-          <SectionTitle>Leave Usage Trend — Monthly</SectionTitle>
-          <ResponsiveContainer width="100%" height={150} className="mt-3">
-            <LineChart data={LEAVE_TREND} margin={{ left: -10, right: 8, top: 4, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F0F4F8" />
-              <XAxis dataKey="month" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
-              <Tooltip contentStyle={TT} />
-              <Line type="monotone" dataKey="days" stroke="#F59E0B" strokeWidth={2} dot={{ r: 3, fill: '#F59E0B' }} name="Days" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   )
 }
@@ -471,90 +621,120 @@ function LeaveUsageReport() {
 // 4. TURNOVER REPORT
 // ─────────────────────────────────────────────────────────────────────
 
-const TO_TREND = ['May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr'].map((month, i) => ({
-  month, rate: parseFloat((1.8 + Math.sin(i * 0.7) * 1.5).toFixed(1)), benchmark: 3,
-}))
-
-const TO_BY_DEPT = [
-  { dept: 'Operations', leavers: 4 },
-  { dept: 'Dispatch',   leavers: 3 },
-  { dept: 'Admin',      leavers: 1 },
-  { dept: 'QA',         leavers: 1 },
-  { dept: 'HR',         leavers: 0 },
-  { dept: 'Finance',    leavers: 0 },
-]
-
-const TO_REASONS = [
-  { name: 'Resignation',     value: 6, color: '#F59E0B' },
-  { name: 'Dismissal',       value: 2, color: '#EF4444' },
-  { name: 'End of Contract', value: 1, color: '#8B5CF6' },
-  { name: 'Redundancy',      value: 0, color: '#9CA3AF' },
-]
-
-const LEAVERS = [
-  { name: 'Tariq Mehmood', dept: 'Operations', reason: 'Resignation',     date: '2025-03-15', los: '14 months' },
-  { name: 'Hina Baig',     dept: 'Dispatch',   reason: 'Resignation',     date: '2025-02-28', los: '8 months'  },
-  { name: 'Kashif Nawaz',  dept: 'Operations', reason: 'Dismissal',       date: '2025-02-10', los: '22 months' },
-  { name: 'Mehwish Ali',   dept: 'Admin',      reason: 'Resignation',     date: '2025-01-20', los: '5 months'  },
-  { name: 'Danial Raza',   dept: 'Dispatch',   reason: 'Resignation',     date: '2025-01-05', los: '11 months' },
-  { name: 'Sobia Khan',    dept: 'Operations', reason: 'Dismissal',       date: '2024-12-18', los: '3 months'  },
-  { name: 'Adnan Malik',   dept: 'QA',         reason: 'End of Contract', date: '2024-12-01', los: '12 months' },
-  { name: 'Rabia Tariq',   dept: 'Operations', reason: 'Resignation',     date: '2024-11-10', los: '18 months' },
-  { name: 'Waqas Ashraf',  dept: 'Dispatch',   reason: 'Resignation',     date: '2024-10-22', los: '7 months'  },
-]
-
 function TurnoverReport({ employees }: { employees: FirebaseEmployee[] }) {
   const [deptF,   setDeptF]   = useState('All')
   const [reasonF, setReasonF] = useState('All')
   const [sortCol, setSortCol] = useState('')
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc')
 
-  const totalStaff    = Math.max(employees.length, 50)
-  const totalLeavers  = LEAVERS.length
-  const turnoverRate  = ((totalLeavers / totalStaff) * 100).toFixed(1)
-  const highToMonths  = TO_TREND.filter(m => m.rate > 5)
-  const highToDepts   = TO_BY_DEPT.filter(d => d.leavers > 2)
+  const leavers = useMemo(() => employees
+    .filter(e => ['resigned','terminated'].includes(e.status ?? ''))
+    .map(e => {
+      const start     = e.startDate         ? new Date(e.startDate)         : null
+      const departure = e.statusChangedDate  ? new Date(e.statusChangedDate) : new Date()
+      let los = '—'
+      if (start) {
+        const m = Math.floor((departure.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30.44))
+        los = m < 12 ? `${m}m` : `${Math.floor(m/12)}y${m%12>0?` ${m%12}m`:''}`
+      }
+      return { name: e.name, dept: e.department ?? 'Unknown', reason: e.status === 'resigned' ? 'Resignation' : 'Dismissal', date: e.statusChangedDate ?? '—', dateRaw: e.statusChangedDate ?? '', los }
+    })
+    .sort((a, b) => b.dateRaw.localeCompare(a.dateRaw))
+  , [employees])
 
-  const filtered = LEAVERS.filter(l => {
-    if (deptF   !== 'All' && l.dept   !== deptF)   return false
-    if (reasonF !== 'All' && l.reason !== reasonF) return false
-    return true
-  })
+  const deptBreakdown = useMemo(() => {
+    const m: Record<string,number> = {}
+    leavers.forEach(l => { m[l.dept] = (m[l.dept] ?? 0) + 1 })
+    return Object.entries(m).map(([dept, n]) => ({ dept, leavers: n })).sort((a,b) => b.leavers - a.leavers)
+  }, [leavers])
 
-  const toggle = (col: string) => { if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortCol(col); setSortDir('asc') } }
+  const trendData = useMemo(() => {
+    const now = new Date()
+    return Array.from({ length: 12 }, (_, i) => {
+      const td  = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1)
+      const ms  = `${td.getFullYear()}-${String(td.getMonth()+1).padStart(2,'0')}`
+      const cnt = leavers.filter(l => l.dateRaw.startsWith(ms)).length
+      return { month: td.toLocaleDateString('en-GB', { month: 'short' }), rate: employees.length > 0 ? +(cnt/employees.length*100).toFixed(1) : 0, benchmark: 3 }
+    })
+  }, [leavers, employees.length])
+
+  const reasonBreakdown = useMemo(() => [
+    { name: 'Resignation', value: leavers.filter(l => l.reason === 'Resignation').length, color: '#F59E0B' },
+    { name: 'Dismissal',   value: leavers.filter(l => l.reason === 'Dismissal').length,   color: '#EF4444' },
+  ], [leavers])
+
+  const avgLOS = useMemo(() => {
+    const valid = employees.filter(e => ['resigned','terminated'].includes(e.status??'') && e.startDate && e.statusChangedDate)
+    if (!valid.length) return '—'
+    const total = valid.reduce((s,e) => s + Math.floor((new Date(e.statusChangedDate!).getTime()-new Date(e.startDate).getTime())/(1000*60*60*24*30.44)), 0)
+    const avg   = Math.round(total / valid.length)
+    return avg < 12 ? `${avg} months` : `${(avg/12).toFixed(1)} yrs`
+  }, [employees])
+
+  const totalLeavers = leavers.length
+  const turnoverRate = employees.length > 0 ? (totalLeavers/employees.length*100).toFixed(1) : '0.0'
+  const highToDepts  = deptBreakdown.filter(d => d.leavers > 2)
+  const allDepts     = [...new Set(leavers.map(l => l.dept))]
+
+  const filtered = leavers.filter(l => (deptF === 'All' || l.dept === deptF) && (reasonF === 'All' || l.reason === reasonF))
+
+  const toggle  = (col: string) => { if (sortCol === col) setSortDir(d => d==='asc'?'desc':'asc'); else { setSortCol(col); setSortDir('asc') } }
   const SortIco = ({ col }: { col: string }) => sortCol === col ? (sortDir === 'asc' ? <ChevronUp size={10} /> : <ChevronDown size={10} />) : null
+
+  const sorted = useMemo(() => {
+    if (!sortCol) return filtered
+    const fn: Record<string,(l:typeof filtered[0])=>string> = { Name: l=>l.name, Department: l=>l.dept, Reason: l=>l.reason, Date: l=>l.dateRaw }
+    const get = fn[sortCol] ?? ((l:typeof filtered[0]) => l.los)
+    return [...filtered].sort((a,b) => sortDir==='asc' ? get(a).localeCompare(get(b)) : get(b).localeCompare(get(a)))
+  }, [filtered, sortCol, sortDir])
+
+  if (totalLeavers === 0) {
+    return (
+      <div className="space-y-5">
+        <div>
+          <h2 className="page-header">Staff Turnover & Retention</h2>
+          <p className="page-sub">Leavers, turnover rate, and retention analysis from Firebase</p>
+        </div>
+        <div className="card p-12 flex flex-col items-center gap-3 text-center">
+          <UserX size={32} className="text-gray-200" />
+          <p className="text-sm font-semibold text-gray-400">No leavers on record yet</p>
+          <p className="text-xs text-gray-300 max-w-xs">When employees are marked as resigned or terminated, their turnover statistics will appear here.</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-5">
       <div>
         <h2 className="page-header">Staff Turnover & Retention</h2>
-        <p className="page-sub">Leavers, turnover rate, and retention analysis</p>
+        <p className="page-sub">Leavers, turnover rate, and retention analysis from Firebase</p>
       </div>
 
       <div className="flex gap-3 flex-wrap items-center">
         <FilterSelect value={deptF} onChange={setDeptF}>
           <option value="All">All Departments</option>
-          {TO_BY_DEPT.map(d => <option key={d.dept}>{d.dept}</option>)}
+          {allDepts.map(d => <option key={d}>{d}</option>)}
         </FilterSelect>
         <FilterSelect value={reasonF} onChange={setReasonF}>
           <option value="All">All Reasons</option>
-          {TO_REASONS.map(r => <option key={r.name}>{r.name}</option>)}
+          <option value="Resignation">Resignation</option>
+          <option value="Dismissal">Dismissal</option>
         </FilterSelect>
-        <button onClick={() => exportCSV('Turnover', ['Name','Department','Reason','Date','Length of Service'], filtered.map(l => [l.name, l.dept, l.reason, l.date, l.los]))}
+        <button onClick={() => exportCSV('Turnover', ['Name','Department','Reason','Date','Length of Service'], sorted.map(l => [l.name,l.dept,l.reason,l.date,l.los]))}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-300 text-green-700 text-xs font-semibold hover:bg-green-50 ml-auto">
           <Download size={12} /> Export CSV
         </button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard label="Total Leavers"         value={totalLeavers}    icon={UserX}       color="#EC4899" />
-        <StatCard label="Turnover Rate"          value={`${turnoverRate}%`} icon={TrendingDown} color="#EF4444" />
-        <StatCard label="Avg Length of Service"  value="10.2 months"    icon={Clock}       color="#F59E0B" sub="of leavers" />
-        <StatCard label="Most Affected Dept"     value={TO_BY_DEPT[0].dept} icon={AlertCircle} color="#8B5CF6" />
+        <StatCard label="Total Leavers"         value={totalLeavers}        icon={UserX}        color="#EC4899" />
+        <StatCard label="Turnover Rate"          value={`${turnoverRate}%`}  icon={TrendingDown} color="#EF4444" />
+        <StatCard label="Avg Length of Service"  value={avgLOS}              icon={Clock}        color="#F59E0B" sub="of leavers" />
+        <StatCard label="Most Affected Dept"     value={deptBreakdown[0]?.dept ?? '—'} icon={AlertCircle} color="#8B5CF6" />
       </div>
 
       <div className="space-y-2">
-        {highToMonths.map(m => <Insight key={m.month} type="danger">Turnover in <strong>{m.month}</strong> was <strong>{m.rate}%</strong> — exceeds the 5% monthly threshold.</Insight>)}
         {highToDepts.map(d => <Insight key={d.dept} type="warning"><strong>{d.dept}</strong> had <strong>{d.leavers}</strong> leavers — more than 2 in the period.</Insight>)}
       </div>
 
@@ -562,11 +742,11 @@ function TurnoverReport({ employees }: { employees: FirebaseEmployee[] }) {
         <div className="card p-5 lg:col-span-2">
           <SectionTitle>Monthly Turnover Rate vs Industry Benchmark</SectionTitle>
           <ResponsiveContainer width="100%" height={180} className="mt-3">
-            <LineChart data={TO_TREND} margin={{ left: -10, right: 8, top: 4, bottom: 0 }}>
+            <LineChart data={trendData} margin={{ left: -10, right: 8, top: 4, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F0F4F8" />
               <XAxis dataKey="month" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} unit="%" domain={[0, 8]} />
-              <Tooltip contentStyle={TT} formatter={(v, n) => [`${v}%`, n]} />
+              <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} unit="%" domain={[0, 'auto']} />
+              <Tooltip contentStyle={TT} formatter={(v,n) => [`${v}%`, n]} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Line type="monotone" dataKey="rate"      stroke="#EC4899" strokeWidth={2} dot={{ r: 3, fill: '#EC4899' }} name="Turnover Rate" />
               <Line type="monotone" dataKey="benchmark" stroke="#94A3B8" strokeWidth={1} strokeDasharray="6 3" dot={false} name="Benchmark (3%)" />
@@ -577,7 +757,7 @@ function TurnoverReport({ employees }: { employees: FirebaseEmployee[] }) {
         <div className="card p-5">
           <SectionTitle>Turnover by Department</SectionTitle>
           <ResponsiveContainer width="100%" height={180} className="mt-3">
-            <BarChart layout="vertical" data={TO_BY_DEPT} barSize={12} margin={{ left: 4, right: 16, top: 4, bottom: 0 }}>
+            <BarChart layout="vertical" data={deptBreakdown} barSize={12} margin={{ left: 4, right: 16, top: 4, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F0F4F8" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
               <YAxis type="category" dataKey="dept" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} width={88} />
@@ -592,14 +772,14 @@ function TurnoverReport({ employees }: { employees: FirebaseEmployee[] }) {
           <div className="flex items-center gap-4 mt-4">
             <ResponsiveContainer width={130} height={130}>
               <PieChart>
-                <Pie data={TO_REASONS.filter(r => r.value > 0)} innerRadius={35} outerRadius={55} dataKey="value" paddingAngle={3}>
-                  {TO_REASONS.filter(r => r.value > 0).map((d, i) => <Cell key={i} fill={d.color} />)}
+                <Pie data={reasonBreakdown.filter(r => r.value > 0)} innerRadius={35} outerRadius={55} dataKey="value" paddingAngle={3}>
+                  {reasonBreakdown.filter(r => r.value > 0).map((d, i) => <Cell key={i} fill={d.color} />)}
                 </Pie>
                 <Tooltip contentStyle={TT} />
               </PieChart>
             </ResponsiveContainer>
             <div className="space-y-2 flex-1">
-              {TO_REASONS.map(r => (
+              {reasonBreakdown.map(r => (
                 <div key={r.name} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
@@ -616,7 +796,7 @@ function TurnoverReport({ employees }: { employees: FirebaseEmployee[] }) {
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
           <SectionTitle>Leavers Register</SectionTitle>
-          <p className="text-xs text-gray-400">{filtered.length} records</p>
+          <p className="text-xs text-gray-400">{sorted.length} records</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -630,20 +810,20 @@ function TurnoverReport({ employees }: { employees: FirebaseEmployee[] }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filtered.map((l, i) => (
-                <tr key={i} className="hover:bg-gray-50/40">
-                  <td className="px-4 py-2.5 text-xs font-semibold text-secondary">{l.name}</td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500">{l.dept}</td>
-                  <td className="px-4 py-2.5">
-                    <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full',
-                      l.reason === 'Resignation' ? 'bg-amber-100 text-amber-700' :
-                      l.reason === 'Dismissal'   ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
-                    )}>{l.reason}</span>
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500">{l.date}</td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500">{l.los}</td>
-                </tr>
-              ))}
+              {sorted.length === 0
+                ? <tr><td colSpan={5} className="px-4 py-8 text-center text-xs text-gray-400">No records match your filters.</td></tr>
+                : sorted.map((l, i) => (
+                  <tr key={i} className="hover:bg-gray-50/40">
+                    <td className="px-4 py-2.5 text-xs font-semibold text-secondary">{l.name}</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500">{l.dept}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', l.reason === 'Resignation' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700')}>{l.reason}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500">{l.date}</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500">{l.los}</td>
+                  </tr>
+                ))
+              }
             </tbody>
           </table>
         </div>
@@ -1281,8 +1461,8 @@ export default function Reports() {
       {/* Active report */}
       <div className="pt-1">
         {tab === 'headcount'   && <HeadcountReport   employees={employees} />}
-        {tab === 'absenteeism' && <AbsenteeismReport />}
-        {tab === 'leave'       && <LeaveUsageReport />}
+        {tab === 'absenteeism' && <AbsenteeismReport employees={employees} />}
+        {tab === 'leave'       && <LeaveUsageReport  employees={employees} />}
         {tab === 'turnover'    && <TurnoverReport     employees={employees} />}
         {tab === 'performance' && <PerformanceReport />}
         {tab === 'training'    && <TrainingReport />}
