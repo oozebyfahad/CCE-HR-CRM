@@ -30,6 +30,40 @@ export const DEPARTMENT_COLORS: Record<string, string> = {
   Marketing:  '#EF4444',
 }
 
+export const JOB_TITLES = [
+  'CEO',
+  'Administrator',
+  'Accounts Executive',
+  'HR',
+  'General Manager',
+  'Project Manager',
+  'Office Coordinator',
+  'Dispatcher',
+  'CSR',
+  'Telephonist',
+  'Video Editor',
+  'Graphic Designer',
+  'Web Developer',
+  'SEO Specialist',
+]
+
+export const JOB_DEPT_MAP: Record<string, string> = {
+  'CEO':                'Admin',
+  'Administrator':      'Admin',
+  'Accounts Executive': 'Management',
+  'HR':                 'Management',
+  'General Manager':    'Management',
+  'Project Manager':    'Management',
+  'Office Coordinator': 'Management',
+  'Dispatcher':         'Operations',
+  'CSR':                'Operations',
+  'Telephonist':        'Operations',
+  'Video Editor':       'Marketing',
+  'Graphic Designer':   'Marketing',
+  'Web Developer':      'Marketing',
+  'SEO Specialist':     'Marketing',
+}
+
 export const LEAVE_TYPE_LABELS: Record<string, string> = {
   annual:         'Annual Leave',
   public_holiday: 'Public Holidays',

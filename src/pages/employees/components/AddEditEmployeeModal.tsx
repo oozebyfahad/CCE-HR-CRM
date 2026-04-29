@@ -1,7 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { X, ChevronRight, AlertCircle } from 'lucide-react'
 import { cn } from '../../../utils/cn'
-import { DEPARTMENTS } from '../../../utils/constants'
+import { DEPARTMENTS, JOB_TITLES, JOB_DEPT_MAP } from '../../../utils/constants'
 import type { FirebaseEmployee } from '../../../hooks/useFirebaseEmployees'
 
 const TABS = ['Personal', 'Employment', 'Address & Kin', 'Financial', 'Payroll'] as const
@@ -228,7 +228,13 @@ export default function AddEditEmployeeModal({ employee, onSave, onClose, tableL
                     {err('employeeId')}
                   </Field>
                   <Field label="Job Title" required>
-                    <input className={inp} value={form.jobTitle} onChange={e => set('jobTitle', e.target.value)} placeholder="Dispatch Agent" />
+                    <select className={inp} value={form.jobTitle} onChange={e => {
+                      const title = e.target.value
+                      setForm(prev => ({ ...prev, jobTitle: title, department: JOB_DEPT_MAP[title] ?? prev.department }))
+                    }}>
+                      <option value="">Select…</option>
+                      {JOB_TITLES.map(t => <option key={t}>{t}</option>)}
+                    </select>
                     {err('jobTitle')}
                   </Field>
                 </div>

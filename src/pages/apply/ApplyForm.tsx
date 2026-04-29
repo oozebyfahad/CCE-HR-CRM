@@ -1,17 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { User, Briefcase, FileText, CheckCircle, AlertCircle, Link } from 'lucide-react'
 import { cn } from '../../utils/cn'
+import { JOB_TITLES, JOB_DEPT_MAP } from '../../utils/constants'
 import { checkPreviouslyRejected } from '../../hooks/useFirebaseApplicants'
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 
-const DEPARTMENTS = ['Admin', 'Management', 'Operations', 'Marketing']
-const POSITIONS   = [
-  'Dispatcher', 'Senior Dispatcher', 'Night Shift Dispatcher',
-  'Customer Service Agent', 'Customer Service Team Lead',
-  'Operations Manager', 'HR Manager', 'Admin Assistant',
-  'IT Administrator', 'Payroll Officer', 'General Manager', 'Other',
-]
 const GENDERS     = ['Male', 'Female', 'Other', 'Prefer not to say']
 const EXP_OPTIONS = ['No Experience', 'Less than 1 year', '1–2 years', '3–5 years', '5–10 years', '10+ years']
 
@@ -168,17 +162,18 @@ export default function ApplyForm() {
 
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Position Applying For" required>
-                <select className={cn(inp, errors.positionApplied && 'border-red-400')} value={form.positionApplied} onChange={e => set('positionApplied', e.target.value)}>
+                <select className={cn(inp, errors.positionApplied && 'border-red-400')} value={form.positionApplied}
+                  onChange={e => {
+                    const pos = e.target.value
+                    setForm(prev => ({ ...prev, positionApplied: pos, department: JOB_DEPT_MAP[pos] ?? prev.department }))
+                  }}>
                   <option value="">Select role…</option>
-                  {POSITIONS.map(p => <option key={p}>{p}</option>)}
+                  {JOB_TITLES.map(p => <option key={p}>{p}</option>)}
                 </select>
                 {errors.positionApplied && <p className="text-red-500 text-xs mt-1">{errors.positionApplied}</p>}
               </Field>
               <Field label="Department" required>
-                <select className={cn(inp, errors.department && 'border-red-400')} value={form.department} onChange={e => set('department', e.target.value)}>
-                  <option value="">Select department…</option>
-                  {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
-                </select>
+                <input className={cn(inp, 'bg-gray-50 text-gray-500')} value={form.department} readOnly placeholder="Auto-filled from position" />
                 {errors.department && <p className="text-red-500 text-xs mt-1">{errors.department}</p>}
               </Field>
             </div>
