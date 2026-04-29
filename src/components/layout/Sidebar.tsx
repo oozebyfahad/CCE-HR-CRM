@@ -26,6 +26,7 @@ const NAV: { path: string; label: string; Icon: React.ElementType; roles: UserRo
   { path: '/request-letter',label: 'Request Letter',    Icon: ScrollText,      roles: ['employee'] },
   { path: '/grievance',     label: 'Grievance',         Icon: ShieldAlert,     roles: ['employee'] },
   { path: '/noticeboard',   label: 'Noticeboard',       Icon: Megaphone,       roles: ['employee'] },
+  { path: '/my-disciplinary', label: 'Disciplinary',    Icon: AlertTriangle,   roles: ['employee'] },
   { path: '/my-requests',   label: 'My Requests',       Icon: FileText,        roles: ['employee'] },
   { path: '/my-profile',    label: 'My Profile',        Icon: User,            roles: ['employee'] },
   { path: '/employees',     label: 'Employees',         Icon: Users,           roles: ['admin','hr','team_lead'] },
