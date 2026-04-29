@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import {
   collection, query, orderBy, onSnapshot,
-  addDoc, updateDoc, doc, serverTimestamp,
+  addDoc, updateDoc, deleteDoc, doc, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import {
   Shield, AlertTriangle, Plus, X, Check, Send,
-  MoreVertical, CheckCircle, Download,
+  MoreVertical, CheckCircle, Download, Trash2,
 } from 'lucide-react'
 import { useFirebaseEmployees } from '../../hooks/useFirebaseEmployees'
 import { useAppSelector } from '../../store'
@@ -237,10 +237,12 @@ function RegisterCaseModal({ onClose, onSaved }: { onClose: () => void; onSaved:
 // ── Main Page ─────────────────────────────────────────────────────────
 
 export default function Disciplinary() {
-  const [cases,    setCases]     = useState<DisciplinaryCase[]>([])
-  const [loading,  setLoading]   = useState(true)
-  const [showForm, setShowForm]  = useState(false)
-  const [actionId, setActionId]  = useState<string | null>(null)
+  const [cases,        setCases]       = useState<DisciplinaryCase[]>([])
+  const [loading,      setLoading]     = useState(true)
+  const [showForm,     setShowForm]    = useState(false)
+  const [actionId,     setActionId]    = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<DisciplinaryCase | null>(null)
+  const [deleteStep,   setDeleteStep]  = useState(1)
 
   useEffect(() => {
     const q = query(collection(db, 'disciplinary'), orderBy('createdAt', 'desc'))
@@ -267,6 +269,13 @@ export default function Disciplinary() {
   const resolve = async (id: string) => {
     await updateDoc(doc(db, 'disciplinary', id), { status: 'resolved' })
     setActionId(null)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return
+    await deleteDoc(doc(db, 'disciplinary', deleteTarget.id))
+    setDeleteTarget(null)
+    setDeleteStep(1)
   }
 
   const exportExcel = () => {
@@ -417,6 +426,10 @@ export default function Disciplinary() {
                                 <CheckCircle size={11} /> Mark Resolved
                               </button>
                             )}
+                            <button onClick={() => { setDeleteTarget(c); setDeleteStep(1); setActionId(null) }}
+                              className="w-full text-left px-4 py-2 text-xs text-red-500 hover:bg-red-50 flex items-center gap-2">
+                              <Trash2 size={11} /> Delete Case
+                            </button>
                             <button onClick={() => setActionId(null)}
                               className="w-full text-left px-4 py-2 text-xs text-gray-400 hover:bg-gray-50 flex items-center gap-2">
                               <X size={11} /> Close
@@ -436,6 +449,56 @@ export default function Disciplinary() {
       {/* Close dropdown on outside click */}
       {actionId && (
         <div className="fixed inset-0 z-10" onClick={() => setActionId(null)} />
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="px-6 py-5 text-center space-y-3">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto">
+                <Trash2 size={20} className="text-red-600" />
+              </div>
+              {deleteStep === 1 ? (
+                <>
+                  <p className="text-sm font-bold text-secondary">Delete Disciplinary Case?</p>
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    This will permanently remove the <span className="font-semibold">{TYPE_LABEL[deleteTarget.caseType]}</span> issued to <span className="font-semibold">{deleteTarget.employeeName}</span> and it will no longer be visible in their portal.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-bold text-red-600">Final Confirmation</p>
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    Are you absolutely sure? This cannot be undone.
+                  </p>
+                </>
+              )}
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => { setDeleteTarget(null); setDeleteStep(1) }}
+                className="flex-1 btn-outline text-sm py-2"
+              >
+                Cancel
+              </button>
+              {deleteStep === 1 ? (
+                <button
+                  onClick={() => setDeleteStep(2)}
+                  className="flex-1 py-2 text-sm font-semibold rounded-xl bg-red-500 hover:bg-red-600 text-white transition-colors"
+                >
+                  Delete
+                </button>
+              ) : (
+                <button
+                  onClick={handleDeleteConfirm}
+                  className="flex-1 py-2 text-sm font-semibold rounded-xl bg-red-700 hover:bg-red-800 text-white transition-colors"
+                >
+                  Yes, Delete Permanently
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {showForm && (
