@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Bell, X, CheckCheck, Megaphone, CalendarCheck, CreditCard, FileText, ShieldAlert, Shield } from 'lucide-react'
-import { collection, query, where, onSnapshot, updateDoc, doc, orderBy, writeBatch } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, updateDoc, doc, writeBatch } from 'firebase/firestore'
 import { db } from '../../config/firebase'
 import { useAppSelector } from '../../store'
 
@@ -63,11 +63,12 @@ export default function NotificationBell({ placement = 'top-right' }: Props) {
     const q = query(
       collection(db, 'notifications'),
       where('userId', '==', user.email),
-      orderBy('createdAt', 'desc'),
     )
     return onSnapshot(q, snap => {
-      setNotes(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification)))
-    })
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as AppNotification))
+      docs.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0))
+      setNotes(docs)
+    }, () => {})
   }, [user?.email])
 
   useEffect(() => {
