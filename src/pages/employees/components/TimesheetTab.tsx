@@ -25,18 +25,21 @@ function scheduledHrs(shift: RotaShift): number {
   return Math.max(0, (shift.end_time - shift.start_time) / 3600 - (shift.minutes_break ?? 0) / 60)
 }
 
-// Payable hours = actual clocked hours minus any overtime beyond shift end.
-// Early arrivals are included (clock-in is not clipped to shift start).
-// If no shift data is available the full clocked time is used.
-// Falls back to att.hours when there is no terminal clock data.
+// Payable hours within the scheduled window:
+//   - early arrival not counted (in clipped to shift start)
+//   - overtime not counted (out clipped to shift end)
+//   - late arrival is penalised (actual clock-in used, which is after shift start)
+//   - no clock-out → falls back to scheduled out_time so the day isn't zeroed
+//   - att.hours used directly when RotaCloud has already approved the record
 function clockedHours(att: RotaAttendance, shift?: RotaShift): number {
-  if (att.in_time_clocked && att.out_time_clocked) {
-    const effectiveOut = shift
-      ? Math.min(att.out_time_clocked, shift.end_time)
-      : att.out_time_clocked
-    return Math.max(0, (effectiveOut - att.in_time_clocked) / 3600 - att.minutes_break / 60)
+  if (att.hours > 0) return att.hours
+  if (att.in_time_clocked) {
+    const effectiveIn  = shift ? Math.max(att.in_time_clocked, shift.start_time) : att.in_time_clocked
+    const rawOut       = att.out_time_clocked ?? att.out_time
+    const effectiveOut = shift ? Math.min(rawOut, shift.end_time) : rawOut
+    return Math.max(0, (effectiveOut - effectiveIn) / 3600 - att.minutes_break / 60)
   }
-  return att.hours
+  return 0
 }
 
 
