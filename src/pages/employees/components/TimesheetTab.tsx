@@ -25,6 +25,18 @@ function scheduledHrs(shift: RotaShift): number {
   return Math.max(0, (shift.end_time - shift.start_time) / 3600 - (shift.minutes_break ?? 0) / 60)
 }
 
+// Payable hours = time within the scheduled window, break deducted
+// Early arrival → clock starts from scheduled_start (not rewarded with extra pay)
+// Late arrival  → clock starts from actual (penalised)
+// Early exit    → clock ends at actual clock-out (penalised)
+// Late exit     → clock ends at scheduled_end (overtime not paid)
+function computePayable(att: RotaAttendance, shift: RotaShift): number {
+  if (!att.in_time_clocked || !att.out_time_clocked) return 0
+  const effectiveIn  = Math.max(att.in_time_clocked, shift.start_time)
+  const effectiveOut = Math.min(att.out_time_clocked, shift.end_time)
+  return Math.max(0, (effectiveOut - effectiveIn) / 3600 - (shift.minutes_break ?? 0) / 60)
+}
+
 // ── Constants ─────────────────────────────────────────────────────────
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const TYPES = [
@@ -1100,6 +1112,437 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
   )
 }
 
+// ── Timesheet Detail View ─────────────────────────────────────────────
+// Shows actual clock times, punctuality, early/late exit, payable hours,
+// and per-shift approval. Only approved shifts go to payroll.
+function TimesheetDetailView({ emp, canApprove }: { emp: FirebaseEmployee; canApprove: boolean }) {
+  const [month,        setMonth]        = useState(currentMonth)
+  const [attendance,   setAttendance]   = useState<RotaAttendance[]>([])
+  const [shifts,       setShifts]       = useState<RotaShift[]>([])
+  const [loading,      setLoading]      = useState(false)
+  const [error,        setError]        = useState('')
+  const [localApproved,setLocalApproved]= useState<Set<string>>(new Set())
+  const [submitting,   setSubmitting]   = useState(false)
+  const [submitStatus, setSubmitStatus] = useState<{ ok: boolean; msg: string } | null>(null)
+  const currentUser = useAppSelector(s => s.auth.user)
+  const rcId        = emp.rotacloudId ? Number(emp.rotacloudId) : null
+  const todayStr    = new Date().toISOString().slice(0, 10)
+  const maxMonth    = currentMonth()
+
+  useEffect(() => {
+    if (!rcId) return
+    let cancelled = false
+    setLoading(true); setError('')
+    const { start, end } = monthToUnix(month)
+    Promise.all([fetchRotaAttendance(start, end), fetchRotaShifts(start, end)])
+      .then(([a, s]) => {
+        if (cancelled) return
+        setAttendance(a.filter(r => !r.deleted && r.user === rcId))
+        setShifts(s.filter(x => !x.deleted && x.published && !x.open && x.user === rcId))
+        setLoading(false)
+      })
+      .catch(e => { if (!cancelled) { setError(e instanceof Error ? e.message : 'Error'); setLoading(false) } })
+    return () => { cancelled = true }
+  }, [month, rcId])
+
+  useEffect(() => {
+    if (!emp.id) return
+    let cancelled = false
+    getDocs(query(collection(db, 'shift_notes'), where('employeeId', '==', emp.id), where('month', '==', month)))
+      .then(snap => {
+        if (cancelled) return
+        const s = new Set<string>()
+        snap.docs.forEach(d => { if (d.data().approved) s.add(d.data().date as string) })
+        setLocalApproved(s)
+      }).catch(() => {})
+    return () => { cancelled = true }
+  }, [emp.id, month])
+
+  const attByDate = new Map<string, RotaAttendance>()
+  for (const r of attendance) {
+    const d = unixToLocalDate((r.in_time_clocked ?? r.in_time) as number)
+    const ex = attByDate.get(d); if (!ex || r.approved) attByDate.set(d, r)
+  }
+  const shiftByDate = new Map<string, RotaShift>()
+  for (const s of shifts) { const d = unixToLocalDate(s.start_time); if (!shiftByDate.has(d)) shiftByDate.set(d, s) }
+
+  const [y, mo] = month.split('-').map(Number)
+  const days = Array.from({ length: new Date(y, mo, 0).getDate() }, (_, i) => {
+    const dd = String(i + 1).padStart(2, '0'); const date = `${month}-${dd}`
+    return { date, att: attByDate.get(date), shift: shiftByDate.get(date) }
+  })
+
+  const toggleApprove = (date: string) => {
+    if (!canApprove) return
+    const was = localApproved.has(date)
+    setLocalApproved(prev => { const n = new Set(prev); was ? n.delete(date) : n.add(date); return n })
+    setDoc(doc(db, 'shift_notes', `${emp.id}_${date}`), { employeeId: emp.id, month, date, approved: !was }, { merge: true }).catch(() => {})
+  }
+
+  const approveAllPresent = () => {
+    if (!canApprove) return
+    const next = new Set(localApproved)
+    days.forEach(({ date, att }) => {
+      if (att?.in_time_clocked && att?.out_time_clocked && !isWeekend(date) && date <= todayStr) {
+        next.add(date)
+        setDoc(doc(db, 'shift_notes', `${emp.id}_${date}`), { employeeId: emp.id, month, date, approved: true }, { merge: true }).catch(() => {})
+      }
+    })
+    setLocalApproved(next)
+  }
+
+  const handleSubmitToPayroll = async () => {
+    if (localApproved.size === 0 || !canApprove) return
+    setSubmitting(true); setSubmitStatus(null)
+    try {
+      let totalPayable = 0; let shiftCount = 0; const overtimeDays: string[] = []
+      for (const date of localApproved) {
+        const att = attByDate.get(date); const shift = shiftByDate.get(date)
+        if (!att?.in_time_clocked || !att?.out_time_clocked) continue
+        shiftCount++
+        totalPayable += shift ? computePayable(att, shift) : att.hours
+        if (shift && att.out_time_clocked > shift.end_time) {
+          const mins = Math.round((att.out_time_clocked - shift.end_time) / 60)
+          overtimeDays.push(`${new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} (+${mins}m)`)
+        }
+      }
+      const threshold = emp.monthlyHours
+      if (threshold != null) totalPayable = Math.min(totalPayable, threshold)
+      await setDoc(doc(db, 'shift_approvals', `${emp.id}_${month}`), {
+        employeeId: emp.id, month, approvedHours: Math.round(totalPayable * 100) / 100,
+        completedShifts: shiftCount, approvedAt: serverTimestamp(),
+        approvedBy: currentUser?.name ?? currentUser?.email ?? 'Admin', scheduledHoursOnly: true,
+      })
+      if (overtimeDays.length > 0 && currentUser?.email) {
+        const preview = overtimeDays.slice(0, 3).join(', ') + (overtimeDays.length > 3 ? ` +${overtimeDays.length - 3} more` : '')
+        await createNotification(currentUser.email, `Overtime — ${emp.name}`,
+          `Worked beyond scheduled end on ${overtimeDays.length} day(s): ${preview}`, 'overtime')
+      }
+      setSubmitStatus({
+        ok: true,
+        msg: `${shiftCount} shifts · ${Math.round(totalPayable * 10) / 10}h payable${threshold != null ? ` (capped at ${threshold}h)` : ''} · sent to payroll${overtimeDays.length > 0 ? ` · ⚠ ${overtimeDays.length} overtime day(s)` : ''}`,
+      })
+    } catch (err) {
+      setSubmitStatus({ ok: false, msg: err instanceof Error ? err.message : 'Failed to save' })
+    } finally { setSubmitting(false) }
+  }
+
+  const presentDays     = days.filter(({ date, att }) => att?.in_time_clocked && !isWeekend(date)).length
+  const absentDays      = days.filter(({ date, att }) => !att && !isWeekend(date) && date < todayStr).length
+  const lateDays        = days.filter(({ att, shift }) => att?.in_time_clocked && shift && att.in_time_clocked > shift.start_time + 60).length
+  const earlyExitDays   = days.filter(({ att, shift }) => att?.out_time_clocked && shift && att.out_time_clocked < shift.end_time - 60).length
+  const overtimeDaysCnt = days.filter(({ att, shift }) => att?.out_time_clocked && shift && att.out_time_clocked > shift.end_time + 60).length
+  const totalPayableAll = days.reduce((s, { att, shift }) => {
+    if (!att?.in_time_clocked || !att?.out_time_clocked) return s
+    return s + (shift ? computePayable(att, shift) : att.hours)
+  }, 0)
+  const approvedPayable = [...localApproved].reduce((s, date) => {
+    const att = attByDate.get(date); const shift = shiftByDate.get(date)
+    if (!att?.in_time_clocked || !att?.out_time_clocked) return s
+    return s + (shift ? computePayable(att, shift) : att.hours)
+  }, 0)
+
+  if (!rcId) return (
+    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+      <AlertCircle size={28} className="text-gray-300" />
+      <p className="text-sm font-semibold text-gray-500">Not linked to RotaCloud</p>
+      <p className="text-xs text-gray-400">Go to Settings → Integrations → Fetch & Match to link this employee.</p>
+    </div>
+  )
+
+  return (
+    <div className="space-y-5">
+
+      {/* Month nav + action buttons */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <button onClick={() => setMonth(m => prevMonth(m))} disabled={month <= MIN_MONTH}
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 transition disabled:opacity-30 shrink-0">
+            <ChevronLeft size={15} />
+          </button>
+          <div className="text-center min-w-[160px]">
+            <p className="text-base font-bold text-secondary">{fmtMonth(month)}</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">Actual Clock Times · Payroll</p>
+          </div>
+          <button onClick={() => setMonth(m => nextMonth(m))} disabled={month >= maxMonth}
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 transition disabled:opacity-30 shrink-0">
+            <ChevronRight size={15} />
+          </button>
+          {loading && <RefreshCw size={13} className="text-gray-400 animate-spin ml-2" />}
+        </div>
+        {canApprove && (
+          <div className="flex items-center gap-2">
+            <button onClick={approveAllPresent} disabled={loading}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 hover:bg-gray-50 transition disabled:opacity-40">
+              <CheckCircle2 size={12} className="text-gray-500" />Approve All Present
+            </button>
+            <button onClick={handleSubmitToPayroll} disabled={localApproved.size === 0 || submitting || loading}
+              className={cn(
+                'flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition',
+                localApproved.size === 0 || submitting || loading
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-green-600 text-white hover:bg-green-700 shadow-sm'
+              )}>
+              {submitting
+                ? <><RefreshCw size={12} className="animate-spin" />Submitting…</>
+                : <><CheckCircle2 size={12} />Submit {localApproved.size} Approved to Payroll</>}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Summary chips */}
+      <div className="flex flex-wrap gap-2 text-xs">
+        {[
+          { label: 'Present',    value: `${presentDays}d`,                                       color: 'bg-green-50 text-green-700 border-green-200'    },
+          { label: 'Payable',    value: fmtHours(totalPayableAll),                               color: 'bg-blue-50 text-blue-700 border-blue-200'       },
+          { label: 'Approved',   value: `${localApproved.size}d · ${fmtHours(approvedPayable)}`, color: 'bg-violet-50 text-violet-700 border-violet-200'  },
+          { label: 'Absent',     value: `${absentDays}d`,                                        color: 'bg-red-50 text-red-600 border-red-200'           },
+          { label: 'Late In',    value: `${lateDays}d`,                                          color: 'bg-amber-50 text-amber-700 border-amber-200'     },
+          { label: 'Left Early', value: `${earlyExitDays}d`,                                     color: 'bg-orange-50 text-orange-700 border-orange-200'  },
+          { label: 'Overtime',   value: `${overtimeDaysCnt}d`,                                   color: 'bg-indigo-50 text-indigo-700 border-indigo-200'  },
+        ].map(s => (
+          <div key={s.label} className={cn('border rounded-lg px-3 py-1.5 flex items-center gap-1.5', s.color)}>
+            <span className="font-medium opacity-70">{s.label}</span>
+            <span className="font-bold tabular-nums">{s.value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Submit status banner */}
+      {submitStatus && (
+        <div className={cn('flex items-center gap-2 rounded-xl px-4 py-3 text-xs',
+          submitStatus.ok ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-600')}>
+          {submitStatus.ok ? <CheckCircle2 size={13} className="shrink-0" /> : <AlertCircle size={13} className="shrink-0" />}
+          <span className="flex-1">{submitStatus.msg}</span>
+          <button onClick={() => setSubmitStatus(null)} className="text-gray-400 hover:text-gray-600 ml-auto">✕</button>
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <AlertCircle size={14} className="text-red-500 shrink-0" />
+          <p className="text-xs text-red-600">{error}</p>
+        </div>
+      )}
+
+      {/* Timesheet table */}
+      <div className="rounded-xl border border-gray-200 overflow-x-auto shadow-sm">
+        <table className="w-full text-xs min-w-[960px] border-collapse">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="px-4 py-3 text-left font-bold text-gray-500 uppercase tracking-wide text-[10px] w-24">Date</th>
+              <th className="px-3 py-3 text-left font-bold text-gray-500 uppercase tracking-wide text-[10px] w-10">Day</th>
+              <th className="px-3 py-3 text-center font-bold text-gray-400 uppercase tracking-wide text-[10px]" colSpan={2}>Scheduled</th>
+              <th className="px-3 py-3 text-left font-bold text-gray-700 uppercase tracking-wide text-[10px]">Clock In</th>
+              <th className="px-3 py-3 text-left font-bold text-gray-700 uppercase tracking-wide text-[10px]">Clock Out</th>
+              <th className="px-3 py-3 text-right font-bold text-blue-600 uppercase tracking-wide text-[10px] whitespace-nowrap">Payable Hrs</th>
+              <th className="px-3 py-3 text-right font-bold text-indigo-500 uppercase tracking-wide text-[10px]">Overtime</th>
+              <th className="px-4 py-3 text-center font-bold text-gray-500 uppercase tracking-wide text-[10px]">Status</th>
+              {canApprove && <th className="px-4 py-3 text-center font-bold text-gray-500 uppercase tracking-wide text-[10px]">Approved</th>}
+            </tr>
+            <tr className="border-b border-gray-100 bg-gray-50/60">
+              <td colSpan={2} />
+              <td className="px-3 pb-2 text-center text-[9px] text-gray-400 font-semibold">Start</td>
+              <td className="px-3 pb-2 text-center text-[9px] text-gray-400 font-semibold">Finish</td>
+              <td colSpan={canApprove ? 6 : 5} />
+            </tr>
+          </thead>
+          <tbody>
+            {days.map(({ date, att, shift }) => {
+              const clockIn  = att?.in_time_clocked
+              const clockOut = att?.out_time_clocked
+              const weekend  = isWeekend(date)
+              const future   = date > todayStr
+              const isToday  = date === todayStr
+              const stilIn   = !!clockIn && !clockOut
+
+              const earlyInMins  = clockIn && shift ? Math.max(0, Math.round((shift.start_time - clockIn) / 60)) : 0
+              const lateInMins   = clockIn && shift ? Math.max(0, Math.round((clockIn - shift.start_time) / 60)) : (att?.minutes_late ?? 0)
+              const isPunctual   = !!clockIn && (shift ? clockIn <= shift.start_time : lateInMins === 0)
+              const earlyOutMins = clockOut && shift && clockOut < shift.end_time ? Math.round((shift.end_time - clockOut) / 60) : 0
+              const overtimeMins = clockOut && shift && clockOut > shift.end_time ? Math.round((clockOut - shift.end_time) / 60) : 0
+
+              const payable = clockIn && clockOut && shift
+                ? computePayable(att!, shift)
+                : (att?.hours ?? 0)
+
+              let status = 'future'
+              if (weekend && !att)                       status = 'day_off'
+              else if (stilIn)                           status = 'live'
+              else if (att) {
+                if (payable > 0 && payable < 4)          status = 'half_day'
+                else if (lateInMins > 0 && payable >= 4) status = 'late'
+                else if (payable >= 4)                   status = 'present'
+                else                                     status = 'present'
+              } else if (!future && !weekend)            status = 'absent'
+
+              const isApproved = localApproved.has(date)
+              const canToggle  = canApprove && !!att && status !== 'absent' && status !== 'day_off' && !future && !stilIn
+              const dimmed     = weekend || future
+
+              const rowBg = isToday              ? 'bg-blue-50/40'
+                          : isApproved           ? 'bg-green-50/30'
+                          : status === 'absent'  ? 'bg-red-50/30'
+                          : weekend              ? 'bg-gray-50/60'
+                          : 'bg-white hover:bg-gray-50/40'
+
+              const txtBase  = dimmed ? 'text-gray-300' : 'text-gray-700'
+              const txtMuted = dimmed ? 'text-gray-300' : 'text-gray-400'
+
+              return (
+                <tr key={date} className={cn('border-b border-gray-100 last:border-0 transition-colors', rowBg)}>
+
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      {isToday && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                      <span className={cn('font-semibold', isToday ? 'text-primary' : txtBase)}>
+                        {new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      </span>
+                    </div>
+                  </td>
+
+                  <td className={cn('px-3 py-2.5', txtMuted)}>{dayOfWeek(date)}</td>
+
+                  <td className={cn('px-3 py-2.5 text-center font-mono', txtMuted)}>
+                    {shift ? fmt12(unixToHHMM(shift.start_time)) : <span className="text-gray-200">—</span>}
+                  </td>
+                  <td className={cn('px-3 py-2.5 text-center font-mono', txtMuted)}>
+                    {shift ? fmt12(unixToHHMM(shift.end_time)) : <span className="text-gray-200">—</span>}
+                  </td>
+
+                  {/* Clock In — time + punctuality badge */}
+                  <td className="px-3 py-2.5">
+                    {clockIn ? (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-mono font-semibold text-gray-800">{fmt12(unixToHHMM(clockIn))}</span>
+                        {isPunctual && earlyInMins > 0 && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 w-fit">
+                            Early {earlyInMins}m ✓
+                          </span>
+                        )}
+                        {isPunctual && earlyInMins === 0 && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 w-fit">
+                            On Time ✓
+                          </span>
+                        )}
+                        {lateInMins > 0 && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 w-fit">
+                            Late +{lateInMins}m
+                          </span>
+                        )}
+                      </div>
+                    ) : <span className="text-gray-200">—</span>}
+                  </td>
+
+                  {/* Clock Out — time + early-exit / overtime badge */}
+                  <td className="px-3 py-2.5">
+                    {stilIn ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold text-[11px]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />Live
+                      </span>
+                    ) : clockOut ? (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-mono font-semibold text-gray-800">{fmt12(unixToHHMM(clockOut))}</span>
+                        {earlyOutMins > 0 && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 w-fit">
+                            Left {earlyOutMins}m early
+                          </span>
+                        )}
+                        {overtimeMins > 0 && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 w-fit">
+                            +{overtimeMins}m OT (unpaid)
+                          </span>
+                        )}
+                        {earlyOutMins === 0 && overtimeMins === 0 && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 w-fit">
+                            On Time ✓
+                          </span>
+                        )}
+                      </div>
+                    ) : <span className="text-gray-200">—</span>}
+                  </td>
+
+                  {/* Payable hours — within scheduled window */}
+                  <td className="px-3 py-2.5 text-right">
+                    {payable > 0
+                      ? <span className="font-bold text-blue-700 tabular-nums">{fmtHours(payable)}</span>
+                      : <span className="text-gray-200">—</span>}
+                  </td>
+
+                  {/* Overtime — shown for reference, NOT added to payable */}
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {overtimeMins > 0
+                      ? <span className="text-indigo-600 font-semibold">{fmtHours(overtimeMins / 60)}</span>
+                      : <span className="text-gray-200">—</span>}
+                  </td>
+
+                  <td className="px-4 py-2.5 text-center">
+                    <StatusBadge status={status} approved={isApproved} />
+                  </td>
+
+                  {canApprove && (
+                    <td className="px-4 py-2.5 text-center">
+                      {canToggle ? (
+                        <button onClick={() => toggleApprove(date)}
+                          className={cn(
+                            'inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full border transition whitespace-nowrap',
+                            isApproved
+                              ? 'bg-green-100 text-green-700 border-green-200 hover:bg-red-50 hover:text-red-500 hover:border-red-200'
+                              : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-green-50 hover:text-green-600 hover:border-green-200'
+                          )}>
+                          {isApproved ? <><CheckCircle2 size={10} />Approved</> : 'Approve'}
+                        </button>
+                      ) : (
+                        <span className="text-gray-200 text-[10px]">—</span>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              )
+            })}
+          </tbody>
+
+          <tfoot>
+            <tr className="bg-gray-50 border-t-2 border-gray-200">
+              <td colSpan={4} className="px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">
+                {fmtMonth(month)} · {presentDays} days present
+              </td>
+              <td colSpan={2} />
+              <td className="px-3 py-3 text-right text-xs font-bold text-blue-700 tabular-nums">
+                {fmtHours(totalPayableAll)}
+              </td>
+              <td className="px-3 py-3 text-right text-xs text-indigo-600 tabular-nums">
+                {overtimeDaysCnt > 0 ? `${overtimeDaysCnt}d` : '—'}
+              </td>
+              <td className="px-4 py-3 text-center">
+                <span className="text-[10px] text-violet-600 font-semibold">{localApproved.size} approved · {fmtHours(approvedPayable)}</span>
+              </td>
+              {canApprove && <td />}
+            </tr>
+          </tfoot>
+        </table>
+
+        {!loading && presentDays === 0 && !error && (
+          <div className="py-8 text-center text-xs text-gray-400">
+            No clock-in records found in RotaCloud for {fmtMonth(month)}.
+          </div>
+        )}
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[10px] text-gray-400">
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-300 shrink-0" />Early arrival — paid from scheduled start</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />On time — full shift paid</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />Late in — paid from actual clock-in (hours docked)</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-orange-400 shrink-0" />Left early — paid only up to actual clock-out</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-indigo-400 shrink-0" />Overtime — shown for reference, not added to payable</span>
+      </div>
+
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
@@ -1113,7 +1556,7 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
   const canEdit           = role === 'hr' || role === 'admin'
   const canApprove        = (role === 'admin' || role === 'hr' || role === 'team_lead') && !isOwnProfile
 
-  const [view,        setView]        = useState<'weekly' | 'monthly'>('weekly')
+  const [view,        setView]        = useState<'timesheet' | 'weekly' | 'monthly'>('timesheet')
   const [weekStart,   setWeekStart]   = useState<Date>(() => weekMonday(new Date()))
   const [editEntry,   setEditEntry]   = useState<TimeEntry | null>(null)
   const [addingDay,   setAddingDay]   = useState<string | null>(null)
@@ -1196,18 +1639,25 @@ export default function TimesheetTab({ emp }: { emp: FirebaseEmployee }) {
     <div>
       {/* ── View toggle ── */}
       <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit mb-4">
-        {(['weekly', 'monthly'] as const).map(v => (
+        {([
+          { v: 'timesheet', label: 'Timesheet' },
+          { v: 'weekly',    label: 'Weekly' },
+          { v: 'monthly',   label: 'Monthly (Raw)' },
+        ] as const).map(({ v, label }) => (
           <button key={v} onClick={() => setView(v)}
             className={cn(
               'px-4 py-1.5 rounded-lg text-xs font-semibold transition',
               view === v ? 'bg-white shadow-sm text-secondary' : 'text-gray-500 hover:text-gray-700'
             )}>
-            {v === 'weekly' ? 'Weekly' : 'Monthly (RotaCloud)'}
+            {label}
           </button>
         ))}
       </div>
 
-      {/* ── Monthly RotaCloud view ── */}
+      {/* ── Timesheet detail view (actual times, payroll, approvals) ── */}
+      {view === 'timesheet' && <TimesheetDetailView emp={emp} canApprove={canApprove} />}
+
+      {/* ── Monthly RotaCloud raw view ── */}
       {view === 'monthly' && <RotaMonthlyView emp={emp} />}
 
       {/* ── Weekly view ── */}
