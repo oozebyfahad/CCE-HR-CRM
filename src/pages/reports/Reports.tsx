@@ -89,7 +89,7 @@ function HeadcountReport({ employees }: { employees: FirebaseEmployee[] }) {
   const [typeF, setTypeF] = useState('All')
 
   const active = useMemo(() => employees.filter(e => !['resigned','terminated'].includes(e.status ?? '')), [employees])
-  const depts  = useMemo(() => [...new Set(active.map(e => e.department ?? 'Unknown'))].sort(), [active])
+  const depts  = useMemo(() => [...new Set(active.map(e => e.department ?? 'Other'))].sort(), [active])
 
   const filtered = useMemo(() => active.filter(e => {
     if (deptF !== 'All' && e.department !== deptF) return false
@@ -105,14 +105,14 @@ function HeadcountReport({ employees }: { employees: FirebaseEmployee[] }) {
 
   const deptBar = useMemo(() => {
     const m: Record<string, number> = {}
-    filtered.forEach(e => { const d = e.department ?? 'Unknown'; m[d] = (m[d] ?? 0) + 1 })
+    filtered.forEach(e => { const d = e.department ?? 'Other'; m[d] = (m[d] ?? 0) + 1 })
     return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([dept, count]) => ({ dept, count }))
   }, [filtered])
 
   const payTypeByDept = useMemo(() => {
     const m: Record<string, { dept: string; hourly: number; fixed: number; none: number }> = {}
     filtered.forEach(e => {
-      const d = e.department ?? 'Unknown'
+      const d = e.department ?? 'Other'
       if (!m[d]) m[d] = { dept: d, hourly: 0, fixed: 0, none: 0 }
       if (e.payType === 'hourly') m[d].hourly++
       else if (e.payType === 'fixed_monthly') m[d].fixed++
@@ -240,7 +240,7 @@ function AbsenteeismReport({ employees }: { employees: FirebaseEmployee[] }) {
     return m
   }, [employees])
 
-  const depts = useMemo(() => [...new Set(employees.map(e => e.department ?? 'Unknown'))].sort(), [employees])
+  const depts = useMemo(() => [...new Set(employees.map(e => e.department ?? 'Other'))].sort(), [employees])
 
   const monthOptions = useMemo(() => {
     const opts: { val: string; label: string }[] = []
@@ -294,11 +294,11 @@ function AbsenteeismReport({ employees }: { employees: FirebaseEmployee[] }) {
 
     const dMap = new Map<string, { s: number; a: number }>()
     curShifts.forEach(s => {
-      const dept = rotaToEmp.get(s.user)?.department ?? 'Unknown'
+      const dept = rotaToEmp.get(s.user)?.department ?? 'Other'
       const v = dMap.get(dept) ?? { s: 0, a: 0 }; v.s++; dMap.set(dept, v)
     })
     absentShifts.forEach(s => {
-      const dept = rotaToEmp.get(s.user)?.department ?? 'Unknown'
+      const dept = rotaToEmp.get(s.user)?.department ?? 'Other'
       const v = dMap.get(dept) ?? { s: 0, a: 0 }; v.a++; dMap.set(dept, v)
     })
     const deptData = [...dMap.entries()]
@@ -443,7 +443,7 @@ function LeaveUsageReport({ employees }: { employees: FirebaseEmployee[] }) {
   const fetchedRef = useRef(false)
 
   const rotaEmps = useMemo(() => employees.filter(e => e.rotacloudId), [employees])
-  const depts    = useMemo(() => [...new Set(employees.map(e => e.department ?? 'Unknown'))].sort(), [employees])
+  const depts    = useMemo(() => [...new Set(employees.map(e => e.department ?? 'Other'))].sort(), [employees])
 
   useEffect(() => {
     if (rotaEmps.length === 0 || fetchedRef.current) return
@@ -477,7 +477,7 @@ function LeaveUsageReport({ employees }: { employees: FirebaseEmployee[] }) {
         const annAlloc = e.leavePolicy?.annual?.total ?? 14
         return {
           name: e.name.split(' ')[0], fullName: e.name,
-          dept: e.department ?? 'Unknown',
+          dept: e.department ?? 'Other',
           taken, annAlloc,
           remaining: Math.max(0, annAlloc - taken),
           over: Math.max(0, taken - annAlloc),
@@ -637,7 +637,7 @@ function TurnoverReport({ employees }: { employees: FirebaseEmployee[] }) {
         const m = Math.floor((departure.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30.44))
         los = m < 12 ? `${m}m` : `${Math.floor(m/12)}y${m%12>0?` ${m%12}m`:''}`
       }
-      return { name: e.name, dept: e.department ?? 'Unknown', reason: e.status === 'resigned' ? 'Resignation' : 'Dismissal', date: e.statusChangedDate ?? '—', dateRaw: e.statusChangedDate ?? '', los }
+      return { name: e.name, dept: e.department ?? 'Other', reason: e.status === 'resigned' ? 'Resignation' : 'Dismissal', date: e.statusChangedDate ?? '—', dateRaw: e.statusChangedDate ?? '', los }
     })
     .sort((a, b) => b.dateRaw.localeCompare(a.dateRaw))
   , [employees])
@@ -843,9 +843,10 @@ const PERF_DIST = [
 ]
 
 const PERF_BY_DEPT = [
-  { dept: 'Management', avg: 7.8 }, { dept: 'IT',      avg: 7.1 }, { dept: 'Finance', avg: 6.9 },
-  { dept: 'HR',         avg: 6.8 }, { dept: 'QA',      avg: 6.2 }, { dept: 'Admin',   avg: 5.9 },
-  { dept: 'Operations', avg: 5.4 }, { dept: 'Dispatch', avg: 5.1 }, { dept: 'Customer Service', avg: 4.8 },
+  { dept: 'Management', avg: 7.8 },
+  { dept: 'Admin',      avg: 7.1 },
+  { dept: 'Operations', avg: 6.2 },
+  { dept: 'Marketing',  avg: 5.6 },
 ]
 
 const PERF_TREND = [
@@ -853,8 +854,8 @@ const PERF_TREND = [
   { cycle: 'Q3 24', avg: 6.1 }, { cycle: 'Q4 24', avg: 6.4 },
 ]
 
-const TOP5    = [{ name: 'Aisha Tariq', dept: 'Management', score: 9.2 }, { name: 'Usman Ali', dept: 'IT', score: 8.8 }, { name: 'Hamza Qureshi', dept: 'Finance', score: 8.5 }, { name: 'Fatima Malik', dept: 'HR', score: 8.3 }, { name: 'Nadia Iqbal', dept: 'QA', score: 8.0 }]
-const BOTTOM5 = [{ name: 'Waqas Ashraf', dept: 'Dispatch', score: 2.4 }, { name: 'Omar Sheikh', dept: 'Operations', score: 3.1 }, { name: 'Danial Raza', dept: 'Customer Service', score: 3.3 }, { name: 'Bilal Ahmed', dept: 'Dispatch', score: 3.5 }, { name: 'Kashif Nawaz', dept: 'Operations', score: 3.8 }]
+const TOP5    = [{ name: 'Aisha Tariq', dept: 'Management', score: 9.2 }, { name: 'Usman Ali', dept: 'Admin', score: 8.8 }, { name: 'Hamza Qureshi', dept: 'Management', score: 8.5 }, { name: 'Fatima Malik', dept: 'Admin', score: 8.3 }, { name: 'Nadia Iqbal', dept: 'Operations', score: 8.0 }]
+const BOTTOM5 = [{ name: 'Waqas Ashraf', dept: 'Operations', score: 2.4 }, { name: 'Omar Sheikh', dept: 'Marketing', score: 3.1 }, { name: 'Danial Raza', dept: 'Operations', score: 3.3 }, { name: 'Bilal Ahmed', dept: 'Marketing', score: 3.5 }, { name: 'Kashif Nawaz', dept: 'Operations', score: 3.8 }]
 
 function PerformanceReport() {
   const [deptF, setDeptF] = useState('All')
@@ -971,9 +972,10 @@ function PerformanceReport() {
 // ─────────────────────────────────────────────────────────────────────
 
 const TRAIN_DEPTS = [
-  { dept: 'HR',          rate: 95 }, { dept: 'Finance',    rate: 92 }, { dept: 'IT',         rate: 90 },
-  { dept: 'Management',  rate: 88 }, { dept: 'Admin',      rate: 82 }, { dept: 'QA',          rate: 78 },
-  { dept: 'Dispatch',    rate: 71 }, { dept: 'Operations', rate: 63 }, { dept: 'Customer Service', rate: 58 },
+  { dept: 'Management', rate: 92 },
+  { dept: 'Admin',      rate: 85 },
+  { dept: 'Marketing',  rate: 74 },
+  { dept: 'Operations', rate: 61 },
 ]
 
 const TRAIN_TREND = [
@@ -982,13 +984,13 @@ const TRAIN_TREND = [
 ]
 
 const TRAIN_TABLE = [
-  { name: 'Ahmed Raza',    dept: 'Operations', health: 'Overdue',      safeguard: 'Complete',    data: 'Overdue',      fire: 'Complete'    },
-  { name: 'Sara Khan',     dept: 'HR',         health: 'Complete',     safeguard: 'Complete',    data: 'Complete',     fire: 'Complete'    },
-  { name: 'Bilal Ahmed',   dept: 'Dispatch',   health: 'In Progress',  safeguard: 'Overdue',     data: 'Complete',     fire: 'Overdue'     },
-  { name: 'Fatima Malik',  dept: 'Finance',    health: 'Complete',     safeguard: 'Complete',    data: 'Complete',     fire: 'Complete'    },
-  { name: 'Usman Ali',     dept: 'IT',         health: 'Complete',     safeguard: 'Complete',    data: 'In Progress',  fire: 'Complete'    },
-  { name: 'Omar Sheikh',   dept: 'Operations', health: 'Overdue',      safeguard: 'Overdue',     data: 'Overdue',      fire: 'Overdue'     },
-  { name: 'Nadia Iqbal',   dept: 'Dispatch',   health: 'In Progress',  safeguard: 'Complete',    data: 'Overdue',      fire: 'In Progress' },
+  { name: 'Ahmed Raza',   dept: 'Operations', health: 'Overdue',     safeguard: 'Complete',   data: 'Overdue',     fire: 'Complete'    },
+  { name: 'Sara Khan',    dept: 'Admin',      health: 'Complete',    safeguard: 'Complete',   data: 'Complete',    fire: 'Complete'    },
+  { name: 'Bilal Ahmed',  dept: 'Operations', health: 'In Progress', safeguard: 'Overdue',    data: 'Complete',    fire: 'Overdue'     },
+  { name: 'Fatima Malik', dept: 'Management', health: 'Complete',    safeguard: 'Complete',   data: 'Complete',    fire: 'Complete'    },
+  { name: 'Usman Ali',    dept: 'Marketing',  health: 'Complete',    safeguard: 'Complete',   data: 'In Progress', fire: 'Complete'    },
+  { name: 'Omar Sheikh',  dept: 'Operations', health: 'Overdue',     safeguard: 'Overdue',    data: 'Overdue',     fire: 'Overdue'     },
+  { name: 'Nadia Iqbal',  dept: 'Marketing',  health: 'In Progress', safeguard: 'Complete',   data: 'Overdue',     fire: 'In Progress' },
 ]
 
 function TrainingReport() {
@@ -1117,7 +1119,7 @@ function PayrollReport({ employees, runs }: { employees: FirebaseEmployee[]; run
   const deptCost = useMemo(() => {
     const m: Record<string, { dept: string; headcount: number; totalCost: number }> = {}
     employees.forEach(e => {
-      const d = e.department ?? 'Unknown'
+      const d = e.department ?? 'Other'
       if (!m[d]) m[d] = { dept: d, headcount: 0, totalCost: 0 }
       m[d].headcount++
       m[d].totalCost += e.salary ?? (e.hourlyRate ? e.hourlyRate * (e.monthlyHours ?? 160) : 0)
