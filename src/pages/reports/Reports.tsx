@@ -14,6 +14,7 @@ import { useFirebaseEmployees, type FirebaseEmployee } from '../../hooks/useFire
 import { useFirebasePayroll } from '../../hooks/useFirebasePayroll'
 import { fmtPKR } from '../../utils/payroll'
 import { cn } from '../../utils/cn'
+import { DEPARTMENTS } from '../../utils/constants'
 import {
   fetchRotaAttendance, fetchRotaShifts, fetchRotaLeave, fetchRotaLeaveTypes, monthToUnix,
   type RotaAttendance, type RotaShift, type RotaLeave, type RotaLeaveType,
@@ -22,6 +23,9 @@ import {
 // ── Constants ─────────────────────────────────────────────────────────
 const DC = ['#2E86C1','#10B981','#F59E0B','#8B5CF6','#EF4444','#EC4899','#6366F1','#14B8A6','#F97316','#84CC16']
 const TT = { fontSize: 11, borderRadius: 8, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }
+
+const VALID_DEPTS = new Set(DEPARTMENTS)
+const normDept = (d?: string | null) => (d && VALID_DEPTS.has(d)) ? d : 'Other'
 
 // ── Shared UI ─────────────────────────────────────────────────────────
 
@@ -89,7 +93,7 @@ function HeadcountReport({ employees }: { employees: FirebaseEmployee[] }) {
   const [typeF, setTypeF] = useState('All')
 
   const active = useMemo(() => employees.filter(e => !['resigned','terminated'].includes(e.status ?? '')), [employees])
-  const depts  = useMemo(() => [...new Set(active.map(e => e.department ?? 'Other'))].sort(), [active])
+  const depts  = useMemo(() => [...new Set(active.map(e => normDept(e.department)))].sort(), [active])
 
   const filtered = useMemo(() => active.filter(e => {
     if (deptF !== 'All' && e.department !== deptF) return false
@@ -105,14 +109,14 @@ function HeadcountReport({ employees }: { employees: FirebaseEmployee[] }) {
 
   const deptBar = useMemo(() => {
     const m: Record<string, number> = {}
-    filtered.forEach(e => { const d = e.department ?? 'Other'; m[d] = (m[d] ?? 0) + 1 })
+    filtered.forEach(e => { const d = normDept(e.department); m[d] = (m[d] ?? 0) + 1 })
     return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([dept, count]) => ({ dept, count }))
   }, [filtered])
 
   const payTypeByDept = useMemo(() => {
     const m: Record<string, { dept: string; hourly: number; fixed: number; none: number }> = {}
     filtered.forEach(e => {
-      const d = e.department ?? 'Other'
+      const d = normDept(e.department)
       if (!m[d]) m[d] = { dept: d, hourly: 0, fixed: 0, none: 0 }
       if (e.payType === 'hourly') m[d].hourly++
       else if (e.payType === 'fixed_monthly') m[d].fixed++
@@ -240,7 +244,7 @@ function AbsenteeismReport({ employees }: { employees: FirebaseEmployee[] }) {
     return m
   }, [employees])
 
-  const depts = useMemo(() => [...new Set(employees.map(e => e.department ?? 'Other'))].sort(), [employees])
+  const depts = useMemo(() => [...new Set(employees.map(e => normDept(e.department)))].sort(), [employees])
 
   const monthOptions = useMemo(() => {
     const opts: { val: string; label: string }[] = []
@@ -294,11 +298,11 @@ function AbsenteeismReport({ employees }: { employees: FirebaseEmployee[] }) {
 
     const dMap = new Map<string, { s: number; a: number }>()
     curShifts.forEach(s => {
-      const dept = rotaToEmp.get(s.user)?.department ?? 'Other'
+      const dept = normDept(rotaToEmp.get(s.user)?.department)
       const v = dMap.get(dept) ?? { s: 0, a: 0 }; v.s++; dMap.set(dept, v)
     })
     absentShifts.forEach(s => {
-      const dept = rotaToEmp.get(s.user)?.department ?? 'Other'
+      const dept = normDept(rotaToEmp.get(s.user)?.department)
       const v = dMap.get(dept) ?? { s: 0, a: 0 }; v.a++; dMap.set(dept, v)
     })
     const deptData = [...dMap.entries()]
@@ -443,7 +447,7 @@ function LeaveUsageReport({ employees }: { employees: FirebaseEmployee[] }) {
   const fetchedRef = useRef(false)
 
   const rotaEmps = useMemo(() => employees.filter(e => e.rotacloudId), [employees])
-  const depts    = useMemo(() => [...new Set(employees.map(e => e.department ?? 'Other'))].sort(), [employees])
+  const depts    = useMemo(() => [...new Set(employees.map(e => normDept(e.department)))].sort(), [employees])
 
   useEffect(() => {
     if (rotaEmps.length === 0 || fetchedRef.current) return
@@ -477,7 +481,7 @@ function LeaveUsageReport({ employees }: { employees: FirebaseEmployee[] }) {
         const annAlloc = e.leavePolicy?.annual?.total ?? 14
         return {
           name: e.name.split(' ')[0], fullName: e.name,
-          dept: e.department ?? 'Other',
+          dept: normDept(e.department),
           taken, annAlloc,
           remaining: Math.max(0, annAlloc - taken),
           over: Math.max(0, taken - annAlloc),
@@ -637,7 +641,7 @@ function TurnoverReport({ employees }: { employees: FirebaseEmployee[] }) {
         const m = Math.floor((departure.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30.44))
         los = m < 12 ? `${m}m` : `${Math.floor(m/12)}y${m%12>0?` ${m%12}m`:''}`
       }
-      return { name: e.name, dept: e.department ?? 'Other', reason: e.status === 'resigned' ? 'Resignation' : 'Dismissal', date: e.statusChangedDate ?? '—', dateRaw: e.statusChangedDate ?? '', los }
+      return { name: e.name, dept: normDept(e.department), reason: e.status === 'resigned' ? 'Resignation' : 'Dismissal', date: e.statusChangedDate ?? '—', dateRaw: e.statusChangedDate ?? '', los }
     })
     .sort((a, b) => b.dateRaw.localeCompare(a.dateRaw))
   , [employees])
@@ -1119,7 +1123,7 @@ function PayrollReport({ employees, runs }: { employees: FirebaseEmployee[]; run
   const deptCost = useMemo(() => {
     const m: Record<string, { dept: string; headcount: number; totalCost: number }> = {}
     employees.forEach(e => {
-      const d = e.department ?? 'Other'
+      const d = normDept(e.department)
       if (!m[d]) m[d] = { dept: d, headcount: 0, totalCost: 0 }
       m[d].headcount++
       m[d].totalCost += e.salary ?? (e.hourlyRate ? e.hourlyRate * (e.monthlyHours ?? 160) : 0)
