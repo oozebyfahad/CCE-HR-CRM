@@ -25,17 +25,6 @@ function scheduledHrs(shift: RotaShift): number {
   return Math.max(0, (shift.end_time - shift.start_time) / 3600 - (shift.minutes_break ?? 0) / 60)
 }
 
-// Payable hours = time within the scheduled window, break deducted
-// Early arrival → clock starts from scheduled_start (not rewarded with extra pay)
-// Late arrival  → clock starts from actual (penalised)
-// Early exit    → clock ends at actual clock-out (penalised)
-// Late exit     → clock ends at scheduled_end (overtime not paid)
-function computePayable(att: RotaAttendance, shift: RotaShift): number {
-  if (!att.in_time_clocked || !att.out_time_clocked) return 0
-  const effectiveIn  = Math.max(att.in_time_clocked, shift.start_time)
-  const effectiveOut = Math.min(att.out_time_clocked, shift.end_time)
-  return Math.max(0, (effectiveOut - effectiveIn) / 3600 - (shift.minutes_break ?? 0) / 60)
-}
 
 // ── Constants ─────────────────────────────────────────────────────────
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -696,7 +685,7 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
       const overtimeDays: string[] = []
 
       for (const att of attendance) {
-        if (!att.in_time_clocked || !att.out_time_clocked) continue
+        if (!att.in_time_clocked) continue
         const d = unixToLocalDate(att.in_time_clocked)
         // If HR has individually approved some days, only count those
         if (hasIndividual && !localApproved.has(d)) continue
@@ -704,21 +693,17 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
         completedShifts++
         if (att.minutes_late > 0) lateCount++
 
-        const shift = shiftByDate.get(d)
-        // Always pay scheduled hours from the rota shift; fall back to actual only when no shift
-        const hrs = shift ? scheduledHrs(shift) : att.hours
-        approvedHours += hrs
+        // Use RotaCloud's actual hours — no clipping to scheduled window
+        approvedHours += att.hours
 
-        // Detect overtime: employee clocked out beyond their scheduled shift end
-        if (shift && att.out_time_clocked > shift.end_time) {
+        // Detect overtime for notification only (not deducted from pay)
+        const shift = shiftByDate.get(d)
+        if (shift && att.out_time_clocked && att.out_time_clocked > shift.end_time) {
           const overtimeMins = Math.round((att.out_time_clocked - shift.end_time) / 60)
           const label = new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
           overtimeDays.push(`${label} (+${overtimeMins}m)`)
         }
       }
-
-      const threshold = emp.monthlyHours
-      if (threshold != null) approvedHours = Math.min(approvedHours, threshold)
 
       await setDoc(doc(db, 'shift_approvals', `${emp.id}_${month}`), {
         employeeId:         emp.id,
@@ -742,12 +727,11 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
         )
       }
 
-      const capNote  = threshold != null ? ` (capped at ${threshold}h)` : ''
       const apprNote = hasIndividual ? `, ${localApproved.size} approved days` : ''
       const otNote   = overtimeDays.length > 0 ? ` · ⚠ ${overtimeDays.length} overtime day(s)` : ''
       setApproveStatus({
         ok:  true,
-        msg: `${completedShifts} shifts · ${Math.round(approvedHours * 10) / 10}h scheduled${capNote}${apprNote} · sent to payroll${otNote}`,
+        msg: `${completedShifts} shifts · ${Math.round(approvedHours * 10) / 10}h payable${apprNote} · sent to payroll${otNote}`,
       })
     } catch (err) {
       setApproveStatus({ ok: false, msg: err instanceof Error ? err.message : 'Failed to save approval' })
@@ -1198,20 +1182,20 @@ function TimesheetDetailView({ emp, canApprove }: { emp: FirebaseEmployee; canAp
       let totalPayable = 0; let shiftCount = 0; const overtimeDays: string[] = []
       for (const date of localApproved) {
         const att = attByDate.get(date); const shift = shiftByDate.get(date)
-        if (!att?.in_time_clocked || !att?.out_time_clocked) continue
+        if (!att?.in_time_clocked) continue
         shiftCount++
-        totalPayable += shift ? computePayable(att, shift) : att.hours
-        if (shift && att.out_time_clocked > shift.end_time) {
+        // Payable = RotaCloud actual hours, no clipping
+        totalPayable += att.hours
+        // Track overtime days for notification only
+        if (shift && att.out_time_clocked && att.out_time_clocked > shift.end_time) {
           const mins = Math.round((att.out_time_clocked - shift.end_time) / 60)
           overtimeDays.push(`${new Date(date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} (+${mins}m)`)
         }
       }
-      const threshold = emp.monthlyHours
-      if (threshold != null) totalPayable = Math.min(totalPayable, threshold)
       await setDoc(doc(db, 'shift_approvals', `${emp.id}_${month}`), {
         employeeId: emp.id, month, approvedHours: Math.round(totalPayable * 100) / 100,
         completedShifts: shiftCount, approvedAt: serverTimestamp(),
-        approvedBy: currentUser?.name ?? currentUser?.email ?? 'Admin', scheduledHoursOnly: true,
+        approvedBy: currentUser?.name ?? currentUser?.email ?? 'Admin',
       })
       if (overtimeDays.length > 0 && currentUser?.email) {
         const preview = overtimeDays.slice(0, 3).join(', ') + (overtimeDays.length > 3 ? ` +${overtimeDays.length - 3} more` : '')
@@ -1220,7 +1204,7 @@ function TimesheetDetailView({ emp, canApprove }: { emp: FirebaseEmployee; canAp
       }
       setSubmitStatus({
         ok: true,
-        msg: `${shiftCount} shifts · ${Math.round(totalPayable * 10) / 10}h payable${threshold != null ? ` (capped at ${threshold}h)` : ''} · sent to payroll${overtimeDays.length > 0 ? ` · ⚠ ${overtimeDays.length} overtime day(s)` : ''}`,
+        msg: `${shiftCount} shifts · ${Math.round(totalPayable * 10) / 10}h payable · sent to payroll${overtimeDays.length > 0 ? ` · ⚠ ${overtimeDays.length} overtime day(s)` : ''}`,
       })
     } catch (err) {
       setSubmitStatus({ ok: false, msg: err instanceof Error ? err.message : 'Failed to save' })
@@ -1232,14 +1216,10 @@ function TimesheetDetailView({ emp, canApprove }: { emp: FirebaseEmployee; canAp
   const lateDays        = days.filter(({ att, shift }) => att?.in_time_clocked && shift && att.in_time_clocked > shift.start_time + 60).length
   const earlyExitDays   = days.filter(({ att, shift }) => att?.out_time_clocked && shift && att.out_time_clocked < shift.end_time - 60).length
   const overtimeDaysCnt = days.filter(({ att, shift }) => att?.out_time_clocked && shift && att.out_time_clocked > shift.end_time + 60).length
-  const totalPayableAll = days.reduce((s, { att, shift }) => {
-    if (!att?.in_time_clocked || !att?.out_time_clocked) return s
-    return s + (shift ? computePayable(att, shift) : att.hours)
-  }, 0)
+  const totalPayableAll = days.reduce((s, { att }) => s + (att?.hours ?? 0), 0)
   const approvedPayable = [...localApproved].reduce((s, date) => {
-    const att = attByDate.get(date); const shift = shiftByDate.get(date)
-    if (!att?.in_time_clocked || !att?.out_time_clocked) return s
-    return s + (shift ? computePayable(att, shift) : att.hours)
+    const att = attByDate.get(date)
+    return s + (att?.hours ?? 0)
   }, 0)
 
   if (!rcId) return (
@@ -1363,9 +1343,7 @@ function TimesheetDetailView({ emp, canApprove }: { emp: FirebaseEmployee; canAp
               const earlyOutMins = clockOut && shift && clockOut < shift.end_time ? Math.round((shift.end_time - clockOut) / 60) : 0
               const overtimeMins = clockOut && shift && clockOut > shift.end_time ? Math.round((clockOut - shift.end_time) / 60) : 0
 
-              const payable = clockIn && clockOut && shift
-                ? computePayable(att!, shift)
-                : (att?.hours ?? 0)
+              const payable = att?.hours ?? 0
 
               let status = 'future'
               if (weekend && !att)                       status = 'day_off'
