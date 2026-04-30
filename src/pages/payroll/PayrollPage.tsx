@@ -53,8 +53,9 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   const [hoursMap,       setHoursMap]       = useState<Record<string, string>>({})
   const [rateMap,        setRateMap]        = useState<Record<string, string>>({})
   const [punctualityMap, setPunctualityMap] = useState<Record<string, string>>({})
-  // Tracks RotaCloud-derived punctuality eligibility: empId → { lateCount, completedShifts }
-  const [lateMap, setLateMap] = useState<Record<string, { lateCount: number; completedShifts: number }>>({})
+  const [otherBonusMap,  setOtherBonusMap]  = useState<Record<string, string>>({})
+  // Tracks RotaCloud-derived punctuality eligibility: empId → { lateCount, lateMins }
+  const [lateMap, setLateMap] = useState<Record<string, { lateCount: number; lateMins: number }>>({})
   // Scheduled hours from RotaCloud shifts (sum of all shift durations for the month)
   const [scheduledMap, setScheduledMap] = useState<Record<string, number>>({})
 
@@ -120,16 +121,16 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         const threshold = scheduledRounded > 0 ? scheduledRounded : (emp.monthlyHours ?? null)
 
         // Check Firestore for admin-approved shift summary first
-        let approvedHours:    number | null = null
-        let lateCount:        number | null = null
-        let completedShifts:  number | null = null
+        let approvedHours: number | null = null
+        let lateCount:     number | null = null
+        let lateMins:      number | null = null
         try {
           const snap = await getDoc(doc(db, 'shift_approvals', `${emp.id}_${month}`))
           if (snap.exists()) {
             const d = snap.data()
-            approvedHours   = d.approvedHours   as number
-            lateCount       = d.lateCount       as number
-            completedShifts = d.completedShifts as number
+            approvedHours = d.approvedHours as number
+            lateCount     = d.lateCount     as number
+            lateMins      = (d.lateMins as number) ?? null
           }
         } catch { /* no pre-approval — fall through */ }
 
@@ -139,12 +140,11 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           const capped = threshold != null ? Math.min(approvedHours, threshold) : approvedHours
           newHours[emp.id] = String(Math.round(capped * 100) / 100)
         } else {
-          let totalHrs = 0; let late = 0; let completed = 0
+          let totalHrs = 0; let late = 0; let totalLateMins = 0
           for (const att of atts) {
             // Count all records with at least a clock-in (not just manager-approved)
             if (!att.in_time_clocked && !att.in_time) continue
-            if (att.in_time_clocked && att.out_time_clocked) completed++
-            if (att.minutes_late > 0) late++
+            if (att.minutes_late > 0) { late++; totalLateMins += att.minutes_late }
 
             // Use RotaCloud's calculated hours when available; fall back to
             // computing from raw clock times for non-approved records
@@ -166,13 +166,13 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           }
           if (threshold != null) totalHrs = Math.min(totalHrs, threshold)
           newHours[emp.id] = String(Math.round(totalHrs * 100) / 100)
-          lateCount       = late
-          completedShifts = completed
+          lateCount = late
+          lateMins  = totalLateMins
         }
 
-        if (lateCount !== null && completedShifts !== null) {
-          newLate[emp.id] = { lateCount, completedShifts }
-          const qualifies = lateCount <= 3 && completedShifts >= 15
+        if (lateCount !== null && lateMins !== null) {
+          newLate[emp.id] = { lateCount, lateMins }
+          const qualifies = lateCount <= 3 && lateMins < 30
           if (!qualifies) newPunc[emp.id] = '0'
         }
         matched++
@@ -217,7 +217,8 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         month, employees,
         toNumMap(hoursMap),
         advMap, loanMap,
-        {}, {},
+        {},
+        toNumMap(otherBonusMap),
         {},
         toNumMap(punctualityMap),
         {}, {},
@@ -311,7 +312,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                 <Star size={14} className="text-blue-500 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold text-blue-800">Punctuality Bonus Rate</p>
-                  <p className="text-[10px] text-blue-600 mt-0.5">Set a global PKR amount and auto-fill it for all qualifying employees (late ≤ 3× and ≥ 15 shifts).</p>
+                  <p className="text-[10px] text-blue-600 mt-0.5">Set a global PKR amount and auto-fill it for all qualifying employees (late ≤ 3× and total late time &lt; 30 min).</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <input
@@ -327,7 +328,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                       const next: Record<string, string> = { ...punctualityMap }
                       active.forEach(emp => {
                         const eli = lateMap[emp.id]
-                        const qualifies = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : false
+                        const qualifies = eli ? eli.lateCount <= 3 && eli.lateMins < 30 : false
                         next[emp.id] = qualifies ? String(rate) : '0'
                       })
                       setPunctualityMap(next)
@@ -355,19 +356,21 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                           <th className={thCls}>Rate (PKR/hr)</th>
                           <th className={thCls}>Hours Worked / Scheduled</th>
                           <th className={thCls}>Punctuality Bonus (PKR)</th>
+                          <th className={thCls}>Other Bonus (PKR)</th>
                           <th className={thCls}>Eligibility</th>
                           <th className={thCls}>Est. Basic Pay</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {hourly.map(emp => {
-                          const hrs  = parseFloat(hoursMap[emp.id] ?? '') || 0
-                          const punc = parseFloat(punctualityMap[emp.id] ?? '') || 0
-                          const rate = parseFloat(rateMap[emp.id] ?? '') || (emp.hourlyRate ?? 0)
-                          const est  = Math.round(rate * hrs)
-                          const eli  = lateMap[emp.id]
-                          const qualifies   = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : null
-                          const scheduled   = scheduledMap[emp.id]
+                          const hrs        = parseFloat(hoursMap[emp.id] ?? '') || 0
+                          const punc       = parseFloat(punctualityMap[emp.id] ?? '') || 0
+                          const other      = parseFloat(otherBonusMap[emp.id] ?? '') || 0
+                          const rate       = parseFloat(rateMap[emp.id] ?? '') || (emp.hourlyRate ?? 0)
+                          const est        = Math.round(rate * hrs)
+                          const eli        = lateMap[emp.id]
+                          const qualifies  = eli ? eli.lateCount <= 3 && eli.lateMins < 30 : null
+                          const scheduled  = scheduledMap[emp.id]
                           return (
                             <tr key={emp.id} className="hover:bg-gray-50/50">
                               <td className={tdCls}>
@@ -403,21 +406,33 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                                   )} />
                               </td>
                               <td className={tdCls}>
+                                <input type="number" min={0} step={100} placeholder="0"
+                                  value={otherBonusMap[emp.id] ?? ''}
+                                  onChange={e => setOtherBonusMap(m => ({ ...m, [emp.id]: e.target.value }))}
+                                  className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20 text-gray-700" />
+                              </td>
+                              <td className={tdCls}>
                                 {qualifies === null ? (
                                   <span className="text-[10px] text-gray-300">Import first</span>
                                 ) : qualifies ? (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
-                                    <Star size={9} />Qualifies
-                                  </span>
+                                  <div>
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                                      <Star size={9} />Qualifies
+                                    </span>
+                                    <p className="text-[10px] text-gray-400 mt-0.5">{eli.lateCount}× late · {eli.lateMins}m</p>
+                                  </div>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5" title={`Late ${eli?.lateCount}× · ${eli?.completedShifts} shifts`}>
-                                    Not eligible
-                                  </span>
+                                  <div>
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">
+                                      Not eligible
+                                    </span>
+                                    <p className="text-[10px] text-red-400 mt-0.5">{eli?.lateCount}× late · {eli?.lateMins}m total</p>
+                                  </div>
                                 )}
                               </td>
                               <td className={tdCls}>
                                 <span className={hrs > 0 ? 'font-semibold text-gray-800' : 'text-gray-300'}>
-                                  {hrs > 0 ? `PKR ${(est + punc).toLocaleString()}` : '—'}
+                                  {hrs > 0 ? `PKR ${(est + punc + other).toLocaleString()}` : '—'}
                                 </span>
                               </td>
                             </tr>
@@ -445,18 +460,19 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                           <th className={thCls}>Hours / Threshold</th>
                           <th className={thCls}>OT Preview</th>
                           <th className={thCls}>Punctuality Bonus (PKR)</th>
+                          <th className={thCls}>Other Bonus (PKR)</th>
                           <th className={thCls}>Eligibility</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {fixed.map(emp => {
-                          const hrs         = parseFloat(hoursMap[emp.id] ?? '') || 0
-                          const scheduled   = scheduledMap[emp.id]
-                          const threshold   = scheduled ?? emp.monthlyHours ?? 160
-                          const otHrs       = Math.max(0, hrs - threshold)
-                          const otPay       = Math.round(otHrs * (emp.overtimeRate ?? 0))
-                          const eli         = lateMap[emp.id]
-                          const qualifies   = eli ? eli.lateCount <= 3 && eli.completedShifts >= 15 : null
+                          const hrs        = parseFloat(hoursMap[emp.id] ?? '') || 0
+                          const scheduled  = scheduledMap[emp.id]
+                          const threshold  = scheduled ?? emp.monthlyHours ?? 160
+                          const otHrs      = Math.max(0, hrs - threshold)
+                          const otPay      = Math.round(otHrs * (emp.overtimeRate ?? 0))
+                          const eli        = lateMap[emp.id]
+                          const qualifies  = eli ? eli.lateCount <= 3 && eli.lateMins < 30 : null
                           return (
                             <tr key={emp.id} className="hover:bg-gray-50/50">
                               <td className={tdCls}>
@@ -497,16 +513,28 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                                   )} />
                               </td>
                               <td className={tdCls}>
+                                <input type="number" min={0} step={100} placeholder="0"
+                                  value={otherBonusMap[emp.id] ?? ''}
+                                  onChange={e => setOtherBonusMap(m => ({ ...m, [emp.id]: e.target.value }))}
+                                  className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary/20 text-gray-700" />
+                              </td>
+                              <td className={tdCls}>
                                 {qualifies === null ? (
                                   <span className="text-[10px] text-gray-300">Import first</span>
                                 ) : qualifies ? (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
-                                    <Star size={9} />Qualifies
-                                  </span>
+                                  <div>
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                                      <Star size={9} />Qualifies
+                                    </span>
+                                    <p className="text-[10px] text-gray-400 mt-0.5">{eli.lateCount}× late · {eli.lateMins}m</p>
+                                  </div>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5" title={`Late ${eli?.lateCount}× · ${eli?.completedShifts} shifts`}>
-                                    Not eligible
-                                  </span>
+                                  <div>
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">
+                                      Not eligible
+                                    </span>
+                                    <p className="text-[10px] text-red-400 mt-0.5">{eli?.lateCount}× late · {eli?.lateMins}m total</p>
+                                  </div>
                                 )}
                               </td>
                             </tr>
@@ -516,7 +544,7 @@ function NewRunModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                     </table>
                   </div>
                   <p className="text-[11px] text-gray-400 mt-2">
-                    Punctuality bonus qualifies when late ≤ 3 times AND ≥ 15 completed shifts. Import from RotaCloud to auto-check.
+                    Punctuality bonus qualifies when late ≤ 3 times AND total late time &lt; 30 minutes. Import from RotaCloud to auto-check.
                   </p>
                 </div>
               )}
