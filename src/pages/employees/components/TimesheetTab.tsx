@@ -1230,6 +1230,7 @@ function TimesheetDetailView({ emp, canApprove }: { emp: FirebaseEmployee; canAp
   const lateDays        = days.filter(({ att, shift }) => att?.in_time_clocked && shift && att.in_time_clocked > shift.start_time + 60).length
   const earlyExitDays   = days.filter(({ att, shift }) => att?.out_time_clocked && shift && att.out_time_clocked < shift.end_time - 60).length
   const overtimeDaysCnt = days.filter(({ att, shift }) => att?.out_time_clocked && shift && att.out_time_clocked > shift.end_time + 60).length
+  const totalScheduledHours = days.reduce((s, { shift }) => s + (shift ? scheduledHrs(shift) : 0), 0)
   const totalPayableAll = days.reduce((s, { att, shift }) => s + (att ? clockedHours(att, shift) : 0), 0)
   const approvedPayable = [...localApproved].reduce((s, date) => {
     const att = attByDate.get(date); const shift = shiftByDate.get(date)
@@ -1289,6 +1290,7 @@ function TimesheetDetailView({ emp, canApprove }: { emp: FirebaseEmployee; canAp
       <div className="flex flex-wrap gap-2 text-xs">
         {[
           { label: 'Present',    value: `${presentDays}d`,                                       color: 'bg-green-50 text-green-700 border-green-200'    },
+          { label: 'Scheduled',  value: fmtHours(totalScheduledHours),                          color: 'bg-gray-50 text-gray-600 border-gray-200'        },
           { label: 'Payable',    value: fmtHours(totalPayableAll),                               color: 'bg-blue-50 text-blue-700 border-blue-200'       },
           { label: 'Approved',   value: `${localApproved.size}d · ${fmtHours(approvedPayable)}`, color: 'bg-violet-50 text-violet-700 border-violet-200'  },
           { label: 'Absent',     value: `${absentDays}d`,                                        color: 'bg-red-50 text-red-600 border-red-200'           },
@@ -1506,7 +1508,8 @@ function TimesheetDetailView({ emp, canApprove }: { emp: FirebaseEmployee; canAp
               </td>
               <td colSpan={2} />
               <td className="px-3 py-3 text-right text-xs font-bold text-blue-700 tabular-nums">
-                {fmtHours(totalPayableAll)}
+                <div>{fmtHours(totalPayableAll)}</div>
+                <div className="text-[10px] font-normal text-gray-400 mt-0.5">of {fmtHours(totalScheduledHours)} sched</div>
               </td>
               <td className="px-3 py-3 text-right text-xs text-indigo-600 tabular-nums">
                 {overtimeDaysCnt > 0 ? `${overtimeDaysCnt}d` : '—'}
