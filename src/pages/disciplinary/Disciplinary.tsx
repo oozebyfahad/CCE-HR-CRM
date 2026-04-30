@@ -241,6 +241,7 @@ export default function Disciplinary() {
   const [loading,      setLoading]     = useState(true)
   const [showForm,     setShowForm]    = useState(false)
   const [actionId,     setActionId]    = useState<string | null>(null)
+  const [dropdownPos,  setDropdownPos] = useState<{ top: number; right: number } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DisciplinaryCase | null>(null)
   const [deleteStep,   setDeleteStep]  = useState(1)
 
@@ -406,37 +407,16 @@ export default function Disciplinary() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="relative">
-                        <button
-                          onClick={() => setActionId(actionId === c.id ? null : c.id)}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400">
-                          <MoreVertical size={13} />
-                        </button>
-                        {actionId === c.id && (
-                          <div className="absolute right-0 top-8 z-20 bg-white border border-gray-100 rounded-xl shadow-xl w-44 py-1">
-                            {!c.sentToPortal && (
-                              <button onClick={() => sendToPortal(c)}
-                                className="w-full text-left px-4 py-2 text-xs text-blue-600 hover:bg-blue-50 flex items-center gap-2">
-                                <Send size={11} /> Send to Portal
-                              </button>
-                            )}
-                            {c.status === 'open' && (
-                              <button onClick={() => resolve(c.id)}
-                                className="w-full text-left px-4 py-2 text-xs text-green-600 hover:bg-green-50 flex items-center gap-2">
-                                <CheckCircle size={11} /> Mark Resolved
-                              </button>
-                            )}
-                            <button onClick={() => { setDeleteTarget(c); setDeleteStep(1); setActionId(null) }}
-                              className="w-full text-left px-4 py-2 text-xs text-red-500 hover:bg-red-50 flex items-center gap-2">
-                              <Trash2 size={11} /> Delete Case
-                            </button>
-                            <button onClick={() => setActionId(null)}
-                              className="w-full text-left px-4 py-2 text-xs text-gray-400 hover:bg-gray-50 flex items-center gap-2">
-                              <X size={11} /> Close
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                      <button
+                        onClick={e => {
+                          if (actionId === c.id) { setActionId(null); setDropdownPos(null); return }
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                          setDropdownPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right })
+                          setActionId(c.id)
+                        }}
+                        className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400">
+                        <MoreVertical size={13} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -446,10 +426,41 @@ export default function Disciplinary() {
         )}
       </div>
 
-      {/* Close dropdown on outside click */}
-      {actionId && (
-        <div className="fixed inset-0 z-10" onClick={() => setActionId(null)} />
-      )}
+      {/* Fixed-position action dropdown — rendered outside overflow containers */}
+      {actionId && dropdownPos && (() => {
+        const c = cases.find(x => x.id === actionId)
+        if (!c) return null
+        return (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => { setActionId(null); setDropdownPos(null) }} />
+            <div
+              className="fixed z-50 bg-white border border-gray-100 rounded-xl shadow-xl w-44 py-1"
+              style={{ top: dropdownPos.top, right: dropdownPos.right }}
+            >
+              {!c.sentToPortal && (
+                <button onClick={() => sendToPortal(c)}
+                  className="w-full text-left px-4 py-2 text-xs text-blue-600 hover:bg-blue-50 flex items-center gap-2">
+                  <Send size={11} /> Send to Portal
+                </button>
+              )}
+              {c.status === 'open' && (
+                <button onClick={() => resolve(c.id)}
+                  className="w-full text-left px-4 py-2 text-xs text-green-600 hover:bg-green-50 flex items-center gap-2">
+                  <CheckCircle size={11} /> Mark Resolved
+                </button>
+              )}
+              <button onClick={() => { setDeleteTarget(c); setDeleteStep(1); setActionId(null); setDropdownPos(null) }}
+                className="w-full text-left px-4 py-2 text-xs text-red-500 hover:bg-red-50 flex items-center gap-2">
+                <Trash2 size={11} /> Delete Case
+              </button>
+              <button onClick={() => { setActionId(null); setDropdownPos(null) }}
+                className="w-full text-left px-4 py-2 text-xs text-gray-400 hover:bg-gray-50 flex items-center gap-2">
+                <X size={11} /> Close
+              </button>
+            </div>
+          </>
+        )
+      })()}
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
