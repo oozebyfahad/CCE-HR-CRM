@@ -31,9 +31,12 @@ function scheduledHrs(shift: RotaShift): number {
 //   - out clipped to shift end   → overtime not paid
 //   - late clock-in              → payable reduced accordingly
 //   - no clock-out               → fall back to scheduled out_time
+//   - no clock-in but has clock-out → use scheduled in_time (terminal failure / forgot to clock in)
 function clockedHours(att: RotaAttendance, shift?: RotaShift): number {
-  if (att.in_time_clocked) {
-    const effectiveIn  = shift ? Math.max(att.in_time_clocked, shift.start_time) : att.in_time_clocked
+  // Use actual clock-in if available; if missing but clock-out exists, treat scheduled start as in
+  const rawIn = att.in_time_clocked ?? (att.out_time_clocked ? att.in_time : null)
+  if (rawIn) {
+    const effectiveIn  = shift ? Math.max(rawIn, shift.start_time) : rawIn
     const rawOut       = att.out_time_clocked ?? att.out_time
     const effectiveOut = shift ? Math.min(rawOut, shift.end_time) : rawOut
     return Math.max(0, (effectiveOut - effectiveIn) / 3600 - att.minutes_break / 60)
@@ -1433,6 +1436,15 @@ function TimesheetDetailView({ emp, canApprove }: { emp: FirebaseEmployee; canAp
                             Late +{lateInMins}m
                           </span>
                         )}
+                      </div>
+                    ) : clockOut ? (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-mono text-gray-400" title="Scheduled start (no terminal clock-in recorded)">
+                          {shift ? fmt12(unixToHHMM(shift.start_time)) : '—'}
+                        </span>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 w-fit">
+                          No terminal
+                        </span>
                       </div>
                     ) : <span className="text-gray-200">—</span>}
                   </td>
