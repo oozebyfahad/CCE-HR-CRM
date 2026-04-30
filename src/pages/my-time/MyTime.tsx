@@ -202,10 +202,23 @@ export default function MyTime() {
   const weekEnd   = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6)
   const wRangeLabel = `${fmtDateLabel(toYMD(weekStart))} – ${fmtDateLabel(toYMD(weekEnd))}`
 
-  const wWorked    = wDates.filter(d => { const a = wAttMap.get(d); return a && a.hours > 0 }).length
-  const wHours     = [...wAttMap.values()].reduce((s, r) => s + r.hours, 0)
-  const wOvertime  = [...wAttMap.values()].reduce((s, r) => s + Math.max(0, r.hours - 8), 0)
-  const wLate      = [...wAttMap.values()].filter(r => r.minutes_late > 30).length
+  const wWorked = wDates.filter(d => { const a = wAttMap.get(d); return a && a.hours > 0 }).length
+  // Use scheduled shift hours for payroll; fall back to actual clocked if no shift
+  const wHours = wDates.reduce((sum, d) => {
+    const shift = wShiftMap.get(d)
+    const att   = wAttMap.get(d)
+    if (!att) return sum
+    if (!shift) return sum + att.hours
+    return sum + Math.max(0, (shift.end_time - shift.start_time) / 3600 - (shift.minutes_break ?? 0) / 60)
+  }, 0)
+  // Overtime = time beyond the scheduled shift end (not just >8h)
+  const wOvertime = wDates.reduce((sum, d) => {
+    const shift = wShiftMap.get(d)
+    const att   = wAttMap.get(d)
+    if (!att?.out_time_clocked || !shift) return sum
+    return sum + Math.max(0, (att.out_time_clocked - shift.end_time) / 3600)
+  }, 0)
+  const wLate = [...wAttMap.values()].filter(r => r.minutes_late > 30).length
 
   // Derived month data
   const [my, mmo] = month.split('-').map(Number)
@@ -217,9 +230,16 @@ export default function MyTime() {
     const date = `${month}-${dd}`
     return { date, att: mAttMap.get(date), shift: mShiftMap.get(date) }
   })
-  const mWorked   = [...mAttMap.values()].filter(r => r.hours > 0 || r.in_time_clocked).length
-  const mHours    = [...mAttMap.values()].reduce((s, r) => s + r.hours, 0)
-  const mOvertime = [...mAttMap.values()].reduce((s, r) => s + Math.max(0, r.hours - 8), 0)
+  const mWorked = [...mAttMap.values()].filter(r => r.hours > 0 || r.in_time_clocked).length
+  const mHours = mDays.reduce((sum, { att, shift }) => {
+    if (!att) return sum
+    if (!shift) return sum + att.hours
+    return sum + Math.max(0, (shift.end_time - shift.start_time) / 3600 - (shift.minutes_break ?? 0) / 60)
+  }, 0)
+  const mOvertime = mDays.reduce((sum, { att, shift }) => {
+    if (!att?.out_time_clocked || !shift) return sum
+    return sum + Math.max(0, (att.out_time_clocked - shift.end_time) / 3600)
+  }, 0)
   const mAbsent   = mDays.filter(({ date, att }) => !att && !isWeekend(date) && date < todayStr).length
   const mLate     = [...mAttMap.values()].filter(r => r.minutes_late > 30).length
   const mApproved = [...mAttMap.values()].filter(r => r.approved).length
@@ -456,7 +476,9 @@ export default function MyTime() {
                   {!weekLoading && (
                     <div className="flex items-center justify-between pt-1 border-t border-white/10">
                       <span className={cn('text-sm font-bold tabular-nums', isToday ? 'text-white' : 'text-gray-800')}>
-                        {att?.hours ? fmtHours(att.hours) : <span className={isToday ? 'text-white/40' : 'text-gray-300'}>—</span>}
+                        {att && shift
+                          ? fmtHours(Math.max(0, (shift.end_time - shift.start_time) / 3600 - (shift.minutes_break ?? 0) / 60))
+                          : att?.hours ? fmtHours(att.hours) : <span className={isToday ? 'text-white/40' : 'text-gray-300'}>—</span>}
                       </span>
                       {isToday
                         ? <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/20 text-white')}>{cfg.label}</span>
@@ -615,11 +637,13 @@ export default function MyTime() {
                               : <span className="text-gray-200">—</span>}
                       </td>
 
-                      {/* Hours */}
+                      {/* Hours — scheduled (payable) hours from rota shift */}
                       <td className="px-3 py-2.5 text-right">
-                        {att?.hours
-                          ? <span className="font-bold text-gray-800 tabular-nums">{fmtHours(att.hours)}</span>
-                          : <span className="text-gray-200">—</span>}
+                        {att && shift
+                          ? <span className="font-bold text-gray-800 tabular-nums">{fmtHours(Math.max(0, (shift.end_time - shift.start_time) / 3600 - (shift.minutes_break ?? 0) / 60))}</span>
+                          : att?.hours
+                            ? <span className="font-bold text-gray-400 tabular-nums">{fmtHours(att.hours)}</span>
+                            : <span className="text-gray-200">—</span>}
                       </td>
 
                       {/* Late */}

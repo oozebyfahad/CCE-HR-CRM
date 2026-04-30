@@ -18,6 +18,12 @@ import { cn } from '../../../utils/cn'
 import { fetchRotaAttendance, fetchRotaShifts, monthToUnix, type RotaAttendance, type RotaShift } from '../../../services/rotacloud'
 import { unixToHHMM, unixToLocalDate } from '../../../hooks/useRotaAttendance'
 import { exportTimesheetExcel } from '../../../utils/exportTimesheetExcel'
+import { createNotification } from '../../../components/common/NotificationBell'
+
+// ── Helpers ───────────────────────────────────────────────────────────
+function scheduledHrs(shift: RotaShift): number {
+  return Math.max(0, (shift.end_time - shift.start_time) / 3600 - (shift.minutes_break ?? 0) / 60)
+}
 
 // ── Constants ─────────────────────────────────────────────────────────
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -650,12 +656,17 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
     const d = unixToLocalDate((r.in_time_clocked ?? r.in_time) as number)
     return !localDeleted.has(d)
   })
-  const totalHours   = attList.reduce((s, r) => s + r.hours, 0)
-  const totalDays    = attList.filter(r => r.hours > 0 || r.in_time_clocked).length
-  const lateDays     = attList.filter(r => r.minutes_late > 0).length
-  const approvedDays = attList.filter(r => r.approved).length
-  const overtimeH    = attList.reduce((s, r) => s + Math.max(0, r.hours - 8), 0)
-  const absentDays   = days.filter(({ date, att }) =>
+  const totalHours          = attList.reduce((s, r) => s + r.hours, 0)
+  const totalDays           = attList.filter(r => r.hours > 0 || r.in_time_clocked).length
+  const lateDays            = attList.filter(r => r.minutes_late > 0).length
+  const approvedDays        = attList.filter(r => r.approved).length
+  const totalScheduledHours = days
+    .filter(({ date, att, shift }) => !localDeleted.has(date) && att && shift)
+    .reduce((sum, { att, shift }) => sum + scheduledHrs(shift!), 0)
+  const overtimeH = days
+    .filter(({ date, att, shift }) => !localDeleted.has(date) && att?.out_time_clocked && shift)
+    .reduce((sum, { att, shift }) => sum + Math.max(0, (att!.out_time_clocked! - shift!.end_time) / 3600), 0)
+  const absentDays = days.filter(({ date, att }) =>
     !att && !isWeekend(date) && date < todayStr && !localDeleted.has(date)
   ).length
 
@@ -666,47 +677,65 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
     setApproving(true)
     setApproveStatus(null)
     try {
-      const isHourly = emp.payType === 'hourly'
+      const hasIndividual = localApproved.size > 0
       let approvedHours = 0
       let lateCount = 0
       let completedShifts = 0
+      const overtimeDays: string[] = []
+
       for (const att of attendance) {
         if (!att.in_time_clocked || !att.out_time_clocked) continue
+        const d = unixToLocalDate(att.in_time_clocked)
+        // If HR has individually approved some days, only count those
+        if (hasIndividual && !localApproved.has(d)) continue
+
         completedShifts++
         if (att.minutes_late > 0) lateCount++
 
-        // Use RotaCloud's hours when set; otherwise compute from clock times
-        let hrs = att.hours > 0
-          ? att.hours
-          : Math.max(0, (att.out_time_clocked - att.in_time_clocked) / 3600 - att.minutes_break / 60)
-
-        if (isHourly) {
-          const d = unixToLocalDate(att.in_time_clocked)
-          const shift = shiftByDate.get(d)
-          if (shift) {
-            const scheduledHrs = (shift.end_time - shift.start_time) / 3600 - att.minutes_break / 60
-            hrs = Math.min(hrs, Math.max(0, scheduledHrs))
-          }
-        }
+        const shift = shiftByDate.get(d)
+        // Always pay scheduled hours from the rota shift; fall back to actual only when no shift
+        const hrs = shift ? scheduledHrs(shift) : att.hours
         approvedHours += hrs
+
+        // Detect overtime: employee clocked out beyond their scheduled shift end
+        if (shift && att.out_time_clocked > shift.end_time) {
+          const overtimeMins = Math.round((att.out_time_clocked - shift.end_time) / 60)
+          const label = new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+          overtimeDays.push(`${label} (+${overtimeMins}m)`)
+        }
       }
-      // Apply monthly threshold cap if set
+
       const threshold = emp.monthlyHours
       if (threshold != null) approvedHours = Math.min(approvedHours, threshold)
 
       await setDoc(doc(db, 'shift_approvals', `${emp.id}_${month}`), {
-        employeeId:     emp.id,
+        employeeId:         emp.id,
         month,
-        approvedHours:  Math.round(approvedHours * 100) / 100,
+        approvedHours:      Math.round(approvedHours * 100) / 100,
         lateCount,
         completedShifts,
-        approvedAt:     serverTimestamp(),
-        approvedBy:     currentUser?.name ?? currentUser?.email ?? 'Admin',
+        approvedAt:         serverTimestamp(),
+        approvedBy:         currentUser?.name ?? currentUser?.email ?? 'Admin',
+        scheduledHoursOnly: true,
       })
-      const capNote = threshold != null ? ` (capped at ${threshold}h)` : isHourly ? ' (capped to scheduled hours)' : ''
+
+      // Notify the approving HR user of any overtime
+      if (overtimeDays.length > 0 && currentUser?.email) {
+        const preview = overtimeDays.slice(0, 3).join(', ') + (overtimeDays.length > 3 ? ` +${overtimeDays.length - 3} more` : '')
+        await createNotification(
+          currentUser.email,
+          `Overtime — ${emp.name}`,
+          `Stayed beyond scheduled shift on ${overtimeDays.length} day(s): ${preview}`,
+          'overtime',
+        )
+      }
+
+      const capNote  = threshold != null ? ` (capped at ${threshold}h)` : ''
+      const apprNote = hasIndividual ? `, ${localApproved.size} approved days` : ''
+      const otNote   = overtimeDays.length > 0 ? ` · ⚠ ${overtimeDays.length} overtime day(s)` : ''
       setApproveStatus({
         ok:  true,
-        msg: `${completedShifts} shifts approved · ${Math.round(approvedHours * 10) / 10}h${capNote} · sent to payroll`,
+        msg: `${completedShifts} shifts · ${Math.round(approvedHours * 10) / 10}h scheduled${capNote}${apprNote} · sent to payroll${otNote}`,
       })
     } catch (err) {
       setApproveStatus({ ok: false, msg: err instanceof Error ? err.message : 'Failed to save approval' })
@@ -773,16 +802,18 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
             )}>
             {approving
               ? <><RefreshCw size={12} className="animate-spin" />Approving…</>
-              : <><CheckCircle2 size={12} />Approve All ({completedAtt.length})</>}
+              : localApproved.size > 0
+                ? <><CheckCircle2 size={12} />Submit {localApproved.size} Approved to Payroll</>
+                : <><CheckCircle2 size={12} />Approve All ({completedAtt.length})</>}
           </button>
         </div>
 
         {/* Summary chips */}
         <div className="flex flex-wrap gap-2 text-xs">
           {[
-            { label: 'Worked',    value: `${totalDays}d`,           color: 'bg-green-50 text-green-700 border-green-200'   },
-            { label: 'Hours',     value: fmtHours(totalHours),      color: 'bg-blue-50 text-blue-700 border-blue-200'      },
-            { label: 'Overtime',  value: fmtHours(overtimeH),       color: 'bg-indigo-50 text-indigo-700 border-indigo-200'},
+            { label: 'Worked',    value: `${totalDays}d`,                  color: 'bg-green-50 text-green-700 border-green-200'   },
+            { label: 'Sched Hrs', value: fmtHours(totalScheduledHours),   color: 'bg-blue-50 text-blue-700 border-blue-200'      },
+            { label: 'Overtime',  value: fmtHours(overtimeH),              color: 'bg-indigo-50 text-indigo-700 border-indigo-200'},
             { label: 'Absent',    value: `${absentDays}d`,          color: 'bg-red-50 text-red-600 border-red-200'         },
             { label: 'Late',      value: `${lateDays}d`,            color: 'bg-amber-50 text-amber-700 border-amber-200'   },
             { label: 'Approved',  value: `${approvedDays}d`,        color: 'bg-violet-50 text-violet-700 border-violet-200'},
@@ -959,17 +990,19 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
                     {att?.minutes_break ? `${att.minutes_break}m` : <span className="text-gray-200">—</span>}
                   </td>
 
-                  {/* Hours */}
+                  {/* Hours — scheduled (payable) hours from rota shift */}
                   <td className="px-3 py-2.5 text-right">
-                    {att?.hours
-                      ? <span className="font-bold text-gray-800 tabular-nums">{fmtHours(att.hours)}</span>
-                      : <span className="text-gray-200">—</span>}
+                    {shift
+                      ? <span className="font-bold text-gray-800 tabular-nums">{fmtHours(scheduledHrs(shift))}</span>
+                      : att?.hours
+                        ? <span className="font-bold text-gray-400 tabular-nums" title="No rota shift — showing actual">{fmtHours(att.hours)}</span>
+                        : <span className="text-gray-200">—</span>}
                   </td>
 
-                  {/* Overtime */}
+                  {/* Overtime — time worked beyond scheduled shift end */}
                   <td className="px-3 py-2.5 text-right tabular-nums">
-                    {att?.hours && att.hours > 8
-                      ? <span className="text-indigo-600 font-semibold">{fmtHours(att.hours - 8)}</span>
+                    {att?.out_time_clocked && shift && att.out_time_clocked > shift.end_time
+                      ? <span className="text-indigo-600 font-semibold">{fmtHours((att.out_time_clocked - shift.end_time) / 3600)}</span>
                       : <span className="text-gray-200">—</span>}
                   </td>
 
@@ -1022,8 +1055,8 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
               <td className="px-3 py-3 text-right text-xs font-bold text-gray-600 tabular-nums">
                 {attList.reduce((s, r) => s + r.minutes_break, 0)}m
               </td>
-              <td className="px-3 py-3 text-right text-xs font-bold text-primary tabular-nums">
-                {fmtHours(totalHours)}
+              <td className="px-3 py-3 text-right text-xs font-bold text-primary tabular-nums" title="Scheduled (payable) hours">
+                {fmtHours(totalScheduledHours || totalHours)}
               </td>
               <td className="px-3 py-3 text-right text-xs font-bold text-indigo-600 tabular-nums">
                 {fmtHours(overtimeH)}
