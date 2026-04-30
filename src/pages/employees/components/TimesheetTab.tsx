@@ -642,13 +642,16 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
     setNoteModal(null)
   }
 
-  // Index attendance by date — use actual clock-in if present, else scheduled
+  // Index attendance by date — prefer records that have actual clock data.
+  // An approved record without in_time_clocked must not evict one that has it.
   const attByDate = new Map<string, RotaAttendance>()
   for (const r of attendance) {
     const unix = (r.in_time_clocked ?? r.in_time) as number
     const d = unixToLocalDate(unix)
     const ex = attByDate.get(d)
-    if (!ex || r.approved) attByDate.set(d, r)
+    const rHasClock = !!r.in_time_clocked
+    const exHasClock = !!ex?.in_time_clocked
+    if (!ex || rHasClock || (!exHasClock && r.approved)) attByDate.set(d, r)
   }
 
   // Index shifts by date (scheduled start time)
@@ -1161,7 +1164,10 @@ function TimesheetDetailView({ emp, canApprove }: { emp: FirebaseEmployee; canAp
   const attByDate = new Map<string, RotaAttendance>()
   for (const r of attendance) {
     const d = unixToLocalDate((r.in_time_clocked ?? r.in_time) as number)
-    const ex = attByDate.get(d); if (!ex || r.approved) attByDate.set(d, r)
+    const ex = attByDate.get(d)
+    const rHasClock = !!r.in_time_clocked
+    const exHasClock = !!ex?.in_time_clocked
+    if (!ex || rHasClock || (!exHasClock && r.approved)) attByDate.set(d, r)
   }
   const shiftByDate = new Map<string, RotaShift>()
   for (const s of shifts) { const d = unixToLocalDate(s.start_time); if (!shiftByDate.has(d)) shiftByDate.set(d, s) }
