@@ -909,7 +909,7 @@ function RotaMonthlyView({ emp }: { emp: FirebaseEmployee }) {
               const weekend  = isWeekend(date)
               const future   = date > todayStr
               const isToday  = date === todayStr
-              const stilIn   = !!att?.in_time_clocked && !att?.out_time_clocked
+              const stilIn   = !!att?.in_time_clocked && !att?.out_time_clocked && isToday
 
               // Scheduled times from published shift record
               const schedIn  = shift ? unixToHHMM(shift.start_time) : undefined
@@ -1355,7 +1355,7 @@ function TimesheetDetailView({ emp, canApprove }: { emp: FirebaseEmployee; canAp
               const weekend  = isWeekend(date)
               const future   = date > todayStr
               const isToday  = date === todayStr
-              const stilIn   = !!clockIn && !clockOut
+              const stilIn   = !!clockIn && !clockOut && isToday
 
               const earlyInMins  = clockIn && shift ? Math.max(0, Math.round((shift.start_time - clockIn) / 60)) : 0
               const lateInMins   = clockIn && shift ? Math.max(0, Math.round((clockIn - shift.start_time) / 60)) : (att?.minutes_late ?? 0)
@@ -1460,6 +1460,10 @@ function TimesheetDetailView({ emp, canApprove }: { emp: FirebaseEmployee; canAp
                           </span>
                         )}
                       </div>
+                    ) : att?.out_time ? (
+                      <span className="font-mono text-gray-400" title="Scheduled time (no terminal clock-out)">
+                        {fmt12(unixToHHMM(att.out_time))}
+                      </span>
                     ) : <span className="text-gray-200">—</span>}
                   </td>
 
