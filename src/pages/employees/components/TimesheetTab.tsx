@@ -25,14 +25,18 @@ function scheduledHrs(shift: RotaShift): number {
   return Math.max(0, (shift.end_time - shift.start_time) / 3600 - (shift.minutes_break ?? 0) / 60)
 }
 
-// Actual clocked hours: prefer computing from terminal timestamps so the
-// total matches RotaCloud's dashboard (att.hours is manager-approved and
-// may be 0 for records not yet reviewed).
+// Replicates RotaCloud's hours calculation so our total matches their dashboard.
+// att.hours is the pre-computed approved value — use it when set.
+// For unapproved records (att.hours = 0), compute the same way RotaCloud does:
+// clip early arrival to scheduled start and clip overtime to scheduled end.
 function clockedHours(att: RotaAttendance): number {
+  if (att.hours > 0) return att.hours
   if (att.in_time_clocked && att.out_time_clocked) {
-    return Math.max(0, (att.out_time_clocked - att.in_time_clocked) / 3600 - att.minutes_break / 60)
+    const effectiveIn  = Math.max(att.in_time_clocked, att.in_time)
+    const effectiveOut = Math.min(att.out_time_clocked, att.out_time)
+    return Math.max(0, (effectiveOut - effectiveIn) / 3600 - att.minutes_break / 60)
   }
-  return att.hours  // fallback for records without terminal clock data
+  return 0
 }
 
 
